@@ -226,16 +226,13 @@
     function resetGestureState() {
         pinchActive = false;
         isDragging = false;
-        clearTimeout(holdTimer);
-        holdFired = false;
-        allowCustomPan = false;
     }
 
-    // While the keyboard is ON, dragging directly on text should still
-    // do native text-selection (needed for the font-size/bold tools) —
-    // but dragging on genuinely empty space (below the last line, wide
-    // margins, gaps between blocks) should still pan the page, since
-    // there's nothing there to select anyway.
+    // Only empty space (below the last line, wide margins, gaps
+    // between blocks) is ours to pan — anything with real content
+    // is left entirely to native touch handling so selection, the
+    // native long-press paste menu, and word-select all keep working
+    // exactly as a normal contenteditable would.
     function isEmptyAreaTouch(x, y) {
         const el = document.elementFromPoint(x, y);
         if (!el) return true;
@@ -245,77 +242,11 @@
         return false;
     }
 
-    /* --------------------------------------------------
-       TAP vs HOLD vs DRAG disambiguation (keyboard ON, on
-       real text/content). Mobile browsers decide for themselves
-       whether a touch is a "tap" (fires click/dblclick) or the
-       start of a text-selection drag, and that decision is
-       unreliable — the tiniest finger jitter can go either way,
-       which is why tapping a formula/table to edit it sometimes
-       worked and sometimes silently became a selection instead.
-       So instead of depending on native click/dblclick synthesis,
-       we do our own timing/movement tracking and, once we're sure
-       it was a clean short tap, dispatch a synthetic click/dblclick
-       ourselves (reusing the exact same listeners already attached
-       by editor-core.js/editor-extras.js — nothing else changes).
-    -------------------------------------------------- */
-    const HOLD_MS = 450;
-    const DOUBLE_TAP_MS = 350;
-
-    let allowCustomPan = false;
-    let holdTimer = null;
-    let holdFired = false;
-    let gestureTarget = null;
-    let lastTapTime = 0;
-    let lastTapTarget = null;
-
-    function findFormulaAncestor(el) {
-        return el && el.closest ? el.closest(".latex-formula") : null;
-    }
-    function findMdBlockAncestor(el) {
-        return el && el.closest ? el.closest('[data-md-editable="1"]') : null;
-    }
-
-    function expandToWordRange(range) {
-        const node = range.startContainer;
-        if (node.nodeType !== 3) return range;
-        const text = node.nodeValue;
-        let start = range.startOffset, end = range.startOffset;
-        const isWordChar = (ch) => ch && /[\w\u0900-\u097F]/.test(ch);
-        while (start > 0 && isWordChar(text[start - 1])) start--;
-        while (end < text.length && isWordChar(text[end])) end++;
-        const r = document.createRange();
-        r.setStart(node, start);
-        r.setEnd(node, end);
-        return r;
-    }
-
-    function startHoldSelection(x, y) {
-        if (!document.caretRangeFromPoint) return;
-        let range = document.caretRangeFromPoint(x, y);
-        if (!range) return;
-        range = expandToWordRange(range);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-    }
-
-    function extendSelectionTo(x, y) {
-        if (!document.caretRangeFromPoint) return;
-        const range = document.caretRangeFromPoint(x, y);
-        if (!range) return;
-        const sel = window.getSelection();
-        if (sel.rangeCount === 0 || !sel.extend) return;
-        try {
-            sel.extend(range.startContainer, range.startOffset);
-        } catch (e) { /* extend() can throw across some boundaries — ignore */ }
-    }
+    let allowCustomPan = true;
 
     viewport.addEventListener("touchstart", function (e) {
       try {
         stopMomentum();
-        clearTimeout(holdTimer);
-        holdFired = false;
 
         if (e.touches.length === 2) {
             pinchActive = true;
@@ -331,36 +262,25 @@
         }
 
         if (e.touches.length === 1) {
-            const tx = e.touches[0].clientX, ty = e.touches[0].clientY;
             rebaselineSingleDrag(e.touches[0]);
             isDragging = false;
             lastMoveTime = performance.now();
-            lastMoveX = tx;
-            lastMoveY = ty;
+            lastMoveX = e.touches[0].clientX;
+            lastMoveY = e.touches[0].clientY;
             velX = 0; velY = 0;
 
-            const emptyArea = isEmptyAreaTouch(tx, ty);
+            allowCustomPan = !keyboardMode || isEmptyAreaTouch(e.touches[0].clientX, e.touches[0].clientY);
 
-            if (!keyboardMode || emptyArea) {
-                // OFF mode, or ON mode over empty space: our familiar
-                // tap-places-caret / drag-pans behaviour, unchanged.
-                allowCustomPan = true;
+            if (allowCustomPan) {
+                // block native focus/keyboard trigger (OFF mode) or
+                // native selection-start (ON mode, empty area) — we
+                // handle tap/pan ourselves in both those cases
                 e.preventDefault();
-                return;
             }
-
-            // ON mode, touch is on real content: don't decide yet —
-            // start a hold timer and wait to see whether this becomes
-            // a tap, a hold-to-select, or a drag-without-holding.
-            allowCustomPan = false;
-            gestureTarget = document.elementFromPoint(tx, ty);
-            holdTimer = setTimeout(() => {
-                holdFired = true;
-                startHoldSelection(tx, ty);
-            }, HOLD_MS);
-            // no preventDefault yet — if this turns out to be a plain
-            // tap on ordinary text, native cursor-placement should
-            // still work exactly as it always has.
+            // otherwise (ON mode, touch is on real content): do
+            // nothing custom at all — native tap-to-place-cursor,
+            // native drag-to-select, and the native long-press paste
+            // menu all keep working exactly as they normally would.
         }
       } catch (err) {
         resetGestureState();
@@ -383,19 +303,9 @@
             return;
         }
 
-        if (e.touches.length !== 1 || pinchActive) return;
-        const tx = e.touches[0].clientX, ty = e.touches[0].clientY;
-
-        if (holdFired) {
-            // hold-to-select is active — drag extends the selection
-            extendSelectionTo(tx, ty);
-            e.preventDefault();
-            return;
-        }
-
-        if (allowCustomPan) {
-            const dx = tx - singleStartX;
-            const dy = ty - singleStartY;
+        if (allowCustomPan && e.touches.length === 1 && !pinchActive) {
+            const dx = e.touches[0].clientX - singleStartX;
+            const dy = e.touches[0].clientY - singleStartY;
             if (!isDragging && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
                 isDragging = true;
                 clearFakeCaret(); // starting a pan cancels any pending tap-caret
@@ -408,31 +318,17 @@
                 const now = performance.now();
                 const dt = now - lastMoveTime;
                 if (dt > 0) {
-                    velX = (tx - lastMoveX) / dt * 16;
-                    velY = (ty - lastMoveY) / dt * 16;
+                    velX = (e.touches[0].clientX - lastMoveX) / dt * 16;
+                    velY = (e.touches[0].clientY - lastMoveY) / dt * 16;
                 }
                 lastMoveTime = now;
-                lastMoveX = tx;
-                lastMoveY = ty;
+                lastMoveX = e.touches[0].clientX;
+                lastMoveY = e.touches[0].clientY;
 
                 e.preventDefault();
             }
-            return;
         }
-
-        // keyboardMode ON, on real content, hold not fired yet: moving
-        // before the hold timer fires means this is a quick drag
-        // without holding first — cancel the hold and switch to pan,
-        // rather than letting native drag-to-select kick in.
-        const dx = tx - singleStartX, dy = ty - singleStartY;
-        if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
-            clearTimeout(holdTimer);
-            allowCustomPan = true;
-            isDragging = true;
-            clearFakeCaret();
-            rebaselineSingleDrag(e.touches[0]); // rebaseline from here to avoid a jump
-            e.preventDefault();
-        }
+        // not allowCustomPan → let native text-selection dragging run untouched
       } catch (err) {
         resetGestureState();
       }
@@ -440,8 +336,6 @@
 
     viewport.addEventListener("touchend", function (e) {
       try {
-        clearTimeout(holdTimer);
-
         if (pinchActive) {
             if (e.touches.length < 2) {
                 pinchActive = false;
@@ -450,7 +344,6 @@
                     // tracking from here so the next move doesn't jump
                     rebaselineSingleDrag(e.touches[0]);
                     isDragging = false;
-                    allowCustomPan = true;
                     lastMoveTime = performance.now();
                     lastMoveX = e.touches[0].clientX;
                     lastMoveY = e.touches[0].clientY;
@@ -465,37 +358,10 @@
             placeFakeCaretAtPoint(t.clientX, t.clientY);
         }
 
-        if (keyboardMode && !holdFired && !isDragging && e.changedTouches.length === 1) {
-            // a clean short tap on real content — reliably trigger the
-            // formula/markdown-block toggle ourselves instead of hoping
-            // native click/dblclick synthesis fires.
-            const formulaEl = findFormulaAncestor(gestureTarget);
-            const mdBlockEl = findMdBlockAncestor(gestureTarget);
-            if (formulaEl) {
-                e.preventDefault();
-                formulaEl.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-            } else if (mdBlockEl) {
-                const now = Date.now();
-                if (lastTapTarget === mdBlockEl && (now - lastTapTime) < DOUBLE_TAP_MS) {
-                    e.preventDefault();
-                    mdBlockEl.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
-                    lastTapTarget = null;
-                    lastTapTime = 0;
-                } else {
-                    lastTapTarget = mdBlockEl;
-                    lastTapTime = now;
-                }
-            }
-            // otherwise: plain tap on ordinary text — native
-            // cursor-placement already happened, nothing more to do
-        }
-
-        if (isDragging && allowCustomPan && (Math.abs(velX) > STOP_VELOCITY_MIN || Math.abs(velY) > STOP_VELOCITY_MIN)) {
+        if (isDragging && (Math.abs(velX) > STOP_VELOCITY_MIN || Math.abs(velY) > STOP_VELOCITY_MIN)) {
             startMomentum();
         }
         isDragging = false;
-        holdFired = false;
-        allowCustomPan = false;
       } catch (err) {
         resetGestureState();
       }

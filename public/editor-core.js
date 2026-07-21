@@ -113,7 +113,8 @@
             "bottom-margin": "--bottom-margin",
             "inside-margin": "--inside-margin",
             "outside-margin": "--outside-margin",
-            "gutter-margin": "--gutter-margin"
+            "gutter-margin": "--gutter-margin",
+            "column-gap-margin": "--column-gap"
         };
         Object.keys(map).forEach((id) => {
             const input = document.getElementById(id);

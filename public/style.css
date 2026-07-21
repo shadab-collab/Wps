@@ -17,7 +17,7 @@
     --page-width: 210mm;
     --page-height: 297mm;
 
-    --column-gap: 15mm;
+    --column-gap: 6mm;
 
     --border: #dcdfe6;
 
@@ -216,7 +216,7 @@ Toolbar
     caret-color: #000;
     user-select: text;
     column-count: 3;
-    column-gap: 15mm;
+    column-gap: var(--column-gap);
     column-rule: 1px dashed #dddddd;
     column-fill: auto;
 }
@@ -531,7 +531,7 @@ Toolbar
         border-radius: 0;
         box-shadow: none !important;
         column-count: 3;
-        column-gap: 15mm;
+        column-gap: var(--column-gap);
     }
 
     .page-wrapper:nth-child(odd) .page {
