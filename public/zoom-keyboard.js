@@ -170,30 +170,6 @@
     });
 
     /* ------------------------------------------------
-       EXTERNAL HOOKS (used by editor-core.js)
-       Editing a LaTeX formula (tap-to-edit) needs the real on-screen
-       keyboard, and tapping elsewhere afterwards needs a real
-       selection change so watchForBlockExit's selectionchange
-       listener fires — neither happens while keyboardMode is OFF,
-       since taps there only move a fake caret marker instead of the
-       real DOM selection. These hooks let editor-core.js flip
-       keyboardMode ON when someone starts editing a formula.
-    ------------------------------------------------ */
-    window.WPSKeyboard = {
-        isKeyboardMode: function () { return keyboardMode; },
-        // Turns keyboard mode ON without touching the current
-        // selection/range (the caller has already placed the caret
-        // where it wants it, e.g. inside the raw LaTeX text node).
-        enableKeyboardModeAt: function (page) {
-            clearFakeCaret();
-            keyboardMode = true;
-            toggleBtn.classList.add("active");
-            toggleBtn.textContent = "⌨️";
-            if (page) focusWithoutNativeZoom(page);
-        }
-    };
-
-    /* ------------------------------------------------
        TOUCH GESTURES
     ------------------------------------------------ */
     function dist(t1, t2) {
@@ -380,12 +356,6 @@
         if (!keyboardMode && !isDragging && e.changedTouches.length === 1) {
             const t = e.changedTouches[0];
             placeFakeCaretAtPoint(t.clientX, t.clientY);
-            // Safety net: a formula could be sitting unrendered (raw
-            // LaTeX text) if keyboard mode got turned off mid-edit,
-            // bypassing the normal selectionchange-driven re-render.
-            if (window.WPSEditor && window.WPSEditor.renderMathInPage) {
-                document.querySelectorAll(".page").forEach(window.WPSEditor.renderMathInPage);
-            }
         }
 
         if (isDragging && (Math.abs(velX) > STOP_VELOCITY_MIN || Math.abs(velY) > STOP_VELOCITY_MIN)) {
