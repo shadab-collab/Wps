@@ -265,14 +265,23 @@
     function cleanPasteToParagraphs(text) {
         const lines = text.replace(/\r\n/g, "\n").split("\n");
         const htmlParts = [];
-        let inList = false;
+        let listType = null; // "ul" | "ol" | null
+        let inBlockquote = false;
         let i = 0;
+
+        function closeList() {
+            if (listType) { htmlParts.push(listType === "ul" ? "</ul>" : "</ol>"); listType = null; }
+        }
+        function closeBlockquote() {
+            if (inBlockquote) { htmlParts.push("</blockquote>"); inBlockquote = false; }
+        }
+
         while (i < lines.length) {
             const trimmed = lines[i].trim();
             if (trimmed === "") { i++; continue; } // drop blank lines entirely
 
             if (isTableRow(trimmed)) {
-                if (inList) { htmlParts.push("</ul>"); inList = false; }
+                closeList(); closeBlockquote();
                 const rows = [];
                 while (i < lines.length && isTableRow(lines[i].trim())) {
                     const rowLine = lines[i].trim();
@@ -283,13 +292,42 @@
                 continue;
             }
 
+            // "> quoted text" — consecutive quote lines merge into one
+            // <blockquote> with one <p> per line, same as GitHub/most
+            // Markdown renderers.
+            const quoteMatch = trimmed.match(/^>\s?(.*)$/);
+            if (quoteMatch) {
+                closeList();
+                if (!inBlockquote) { htmlParts.push("<blockquote>"); inBlockquote = true; }
+                htmlParts.push("<p>" + inlineMarkdown(quoteMatch[1]) + "</p>");
+                i++;
+                continue;
+            }
+            closeBlockquote();
+
+            const orderedMatch = trimmed.match(/^\d+[.)]\s+(.*)$/);
+            if (orderedMatch) {
+                if (listType !== "ol") { closeList(); htmlParts.push("<ol>"); listType = "ol"; }
+                htmlParts.push("<li>" + inlineMarkdown(orderedMatch[1]) + "</li>");
+                i++;
+                continue;
+            }
+
             const isBullet = /^[-*]\s+/.test(trimmed);
-            if (isBullet && !inList) { htmlParts.push("<ul>"); inList = true; }
-            if (!isBullet && inList) { htmlParts.push("</ul>"); inList = false; }
+            if (isBullet) {
+                if (listType !== "ul") { closeList(); htmlParts.push("<ul>"); listType = "ul"; }
+                const bulletMatch = trimmed.match(/^[-*]\s+(.*)$/);
+                htmlParts.push("<li>" + inlineMarkdown(bulletMatch[1]) + "</li>");
+                i++;
+                continue;
+            }
+
+            closeList();
             htmlParts.push(markdownLineToHtml(trimmed));
             i++;
         }
-        if (inList) htmlParts.push("</ul>");
+        closeList();
+        closeBlockquote();
         return htmlParts.join("");
     }
 
@@ -366,7 +404,20 @@
             sel.addRange(range);
 
             const page = closestPage(textNode);
-            if (page) page.focus({ preventScroll: true });
+            if (page) {
+                if (window.WPSKeyboard && !window.WPSKeyboard.isKeyboardMode()) {
+                    // enters keyboard mode first (so the real keyboard
+                    // opens and later taps use real selection), then
+                    // re-apply our range since focus() alone can shift
+                    // the browser's own selection to elsewhere in the page
+                    window.WPSKeyboard.enableKeyboardModeAt(page);
+                    const sel3 = window.getSelection();
+                    sel3.removeAllRanges();
+                    sel3.addRange(range);
+                } else {
+                    page.focus({ preventScroll: true });
+                }
+            }
 
             let block = textNode.parentElement;
             while (block && block.parentElement !== page) block = block.parentElement;
@@ -384,10 +435,16 @@
         el.appendChild(span);
     }
 
+    // Recognises every common delimiter style AI chat tools export:
+    // $$...$$ and \[...\] render as display (block-style) math, $...$
+    // and \(...\) render inline. Order matters — $$ is checked before
+    // single $ so "$$x$$" isn't mis-split into two empty $ matches.
+    const INLINE_MATH_RE = /\$\$([^$]+)\$\$|\\\[([^\]]+)\\\]|\$([^$]+)\$|\\\(([^)]+)\\\)/g;
+
     function renderInlineMath(el) {
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
             acceptNode: function (node) {
-                if (!node.nodeValue || node.nodeValue.indexOf("$") === -1) return NodeFilter.FILTER_REJECT;
+                if (!node.nodeValue || !/\$|\\\(|\\\[/.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
                 if (node.parentElement && node.parentElement.closest(".latex-formula")) return NodeFilter.FILTER_REJECT;
                 return NodeFilter.FILTER_ACCEPT;
             }
@@ -398,21 +455,23 @@
         while ((node = walker.nextNode())) targets.push(node);
 
         targets.forEach((textNode) => {
-            const regex = /\$([^$]+)\$/g;
             const text = textNode.nodeValue;
             let match, lastIndex = 0, found = false;
             const frag = document.createDocumentFragment();
+            INLINE_MATH_RE.lastIndex = 0;
 
-            while ((match = regex.exec(text)) !== null) {
+            while ((match = INLINE_MATH_RE.exec(text)) !== null) {
                 found = true;
                 if (match.index > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                const isDisplay = match[1] !== undefined || match[2] !== undefined; // $$..$$ or \[..\]
+                const latex = match[1] || match[2] || match[3] || match[4];
                 const span = document.createElement("span");
                 span.className = "latex-formula";
-                span.setAttribute("data-latex", match[1]);
-                safeKatexRender(match[1], span, false);
+                span.setAttribute("data-latex", latex);
+                safeKatexRender(latex, span, isDisplay);
                 attachEditToggle(span);
                 frag.appendChild(span);
-                lastIndex = regex.lastIndex;
+                lastIndex = INLINE_MATH_RE.lastIndex;
             }
 
             if (found) {
@@ -590,10 +649,17 @@
             if (!hasFormula) {
                 const raw = el.textContent.trim();
                 if (!raw) return;
+                // Whole block wrapped in $$...$$ or \[...\] — a full
+                // display equation sitting alone on its own line/cell.
+                const blockWrap = raw.match(/^\$\$([\s\S]+)\$\$$/) || raw.match(/^\\\[([\s\S]+)\\\]$/);
+                if (blockWrap) {
+                    renderBlockMath(el, blockWrap[1].trim());
+                    return;
+                }
                 if (isPureLatex(raw)) {
                     renderBlockMath(el, raw);
                     return;
-                } else if (raw.indexOf("$") !== -1) {
+                } else if (/\$|\\\(|\\\[/.test(raw)) {
                     renderInlineMath(el);
                     return;
                 }

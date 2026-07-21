@@ -59,7 +59,16 @@
   
   function domListToMarkdown(list) {
     const items = Array.from(list.children).filter((c) => c.tagName === "LI");
+    if (list.tagName === "OL") {
+      return items.map((li, idx) => (idx + 1) + ". " + cleanTextForMarkdown(li).trim()).join("\n");
+    }
     return items.map((li) => "- " + cleanTextForMarkdown(li).trim()).join("\n");
+  }
+  
+  function domBlockquoteToMarkdown(bq) {
+    const paras = Array.from(bq.children).filter((c) => c.tagName === "P");
+    if (!paras.length) return "> " + cleanTextForMarkdown(bq).trim();
+    return paras.map((p) => "> " + cleanTextForMarkdown(p).trim()).join("\n");
   }
   
   function domHeadingToMarkdown(h) {
@@ -70,6 +79,7 @@
   function markdownSourceFor(el) {
     if (el.tagName === "TABLE") return domTableToMarkdown(el);
     if (el.tagName === "UL" || el.tagName === "OL") return domListToMarkdown(el);
+    if (el.tagName === "BLOCKQUOTE") return domBlockquoteToMarkdown(el);
     if (/^H[1-6]$/.test(el.tagName)) return domHeadingToMarkdown(el);
     return cleanTextForMarkdown(el);
   }
@@ -122,14 +132,26 @@
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
-      page.focus({ preventScroll: true });
+      
+      if (window.WPSKeyboard && !window.WPSKeyboard.isKeyboardMode()) {
+        // enters keyboard mode first (so the real keyboard opens and
+        // later taps use real native selection instead of the
+        // pan-mode fake caret), then re-apply our range since
+        // focus() alone can shift the browser's own selection
+        window.WPSKeyboard.enableKeyboardModeAt(page);
+        const sel2 = window.getSelection();
+        sel2.removeAllRanges();
+        sel2.addRange(range);
+      } else {
+        page.focus({ preventScroll: true });
+      }
       
       watchForMdBlockExit(editable);
     });
   }
   
   function attachMarkdownBlocksInPage(page) {
-    page.querySelectorAll("table, h1, h2, h3, h4, h5, h6, ul, ol").forEach(attachMarkdownEditToggle);
+    page.querySelectorAll("table, h1, h2, h3, h4, h5, h6, ul, ol, blockquote").forEach(attachMarkdownEditToggle);
   }
   
   /* ==================================================
