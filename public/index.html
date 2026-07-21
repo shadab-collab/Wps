@@ -22,22 +22,33 @@
 <div class="toolbar no-print">
 
     <div class="toolbar-group">
-        <span class="toolbar-label">प्रारूप</span>
+        <button class="btn btn-success" onclick="docSaveNow()">💾 Save</button>
+        <button class="btn" onclick="docDelete()">🗑️ हटाएँ</button>
+        <button class="btn" onclick="editorUndo()">↩️ Undo</button>
+        <button class="btn" onclick="editorRedo()">↪️ Redo</button>
+    </div>
 
-        <button class="btn" onclick="formatDoc('bold')"><b>B</b></button>
-        <button class="btn" onclick="formatDoc('italic')"><i>I</i></button>
-        <button class="btn" onclick="formatDoc('underline')"><u>U</u></button>
-        <button class="btn" onclick="formatDoc('subscript')">X₂</button>
-        <button class="btn" onclick="formatDoc('superscript')">X²</button>
-        <button class="btn" onclick="insertImage()">🖼️ Image</button>
-        <button class="btn" onclick="applySerialNumbers()" title="■ से शुरू lines में क्रमांक लगाएँ">🔢 क्रमांक</button>
-        <button class="btn" onclick="toggleBoldLines()" title="◆ से शुरू lines को Bold करें/हटाएँ">◆ Bold Line</button>
-
+    <div class="toolbar-group">
         <div class="input-group">
             <span>आकार</span>
             <input id="font-size-input" type="number" value="9" min="6" max="30" onchange="updateFontSize()">
             <span>pt</span>
         </div>
+    </div>
+
+    <div class="toolbar-group">
+        <button class="btn" onclick="insertImage()">🖼️ Image</button>
+        <button class="btn" onclick="applySerialNumbers()" title="■ से शुरू lines में क्रमांक लगाएँ">🔢 क्रमांक</button>
+        <button class="btn" onclick="toggleBoldLines()" title="◆ से शुरू lines को Bold करें/हटाएँ">◆ Bold Line</button>
+    </div>
+
+    <div class="toolbar-group">
+        <span class="toolbar-label">प्रारूप</span>
+        <button class="btn" onclick="formatDoc('bold')"><b>B</b></button>
+        <button class="btn" onclick="formatDoc('italic')"><i>I</i></button>
+        <button class="btn" onclick="formatDoc('underline')"><u>U</u></button>
+        <button class="btn" onclick="formatDoc('subscript')">X₂</button>
+        <button class="btn" onclick="formatDoc('superscript')">X²</button>
 
         <div class="input-group">
             <span>पंक्ति दूरी</span>
@@ -71,18 +82,16 @@
     </div>
 
     <div class="toolbar-group">
-        <span class="toolbar-label">Auto Math</span>
-        <span id="render-status">🟢 Auto Render ON</span>
-    </div>
-
-    <div class="toolbar-group">
         <span class="toolbar-label">दस्तावेज़</span>
         <input id="doc-title-input" type="text" placeholder="दस्तावेज़ का नाम" style="width:140px;">
         <select id="doc-select" onchange="docOpenSelected()"></select>
         <button class="btn" onclick="docNew()">🆕 नया</button>
-        <button class="btn btn-success" onclick="docSaveNow()">💾 Save</button>
-        <button class="btn" onclick="docDelete()">🗑️ हटाएँ</button>
         <span id="save-status" style="font-size:11px;color:#888;"></span>
+    </div>
+
+    <div class="toolbar-group">
+        <span class="toolbar-label">Auto Math</span>
+        <span id="render-status">🟢 Auto Render ON</span>
     </div>
 
     <div class="toolbar-group" style="margin-left:auto;">
@@ -137,6 +146,7 @@
 <script defer src="editor-extras.js"></script>
 <script defer src="pagination.js"></script>
 <script defer src="zoom-keyboard.js"></script>
+<script defer src="undo-redo.js"></script>
 <script defer src="storage.js"></script>
 
 </body>
