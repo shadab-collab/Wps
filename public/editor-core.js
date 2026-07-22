@@ -323,8 +323,13 @@
     }
 
     function safeKatexRender(source, target, displayMode) {
+        // \frac renders numerator/denominator noticeably small in
+        // KaTeX's default "text style" sizing; \dfrac forces the
+        // larger "display style" sizing used in most textbooks/other
+        // editors, without changing anything else about the formula.
+        const enlarged = source.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
         try {
-            window.katex.render(source, target, {
+            window.katex.render(enlarged, target, {
                 throwOnError: false,
                 displayMode: displayMode,
                 macros: { "\\ce": "\\ce" }
@@ -351,7 +356,17 @@
 
     // Clicking a rendered formula turns it back into raw editable
     // text and places the caret at the end of it.
+    // Listener attachment is tracked in-memory (not via a DOM attribute)
+    // on purpose: a DOM attribute would get saved into the document's
+    // HTML and survive a save/reload, wrongly telling us "this formula
+    // already has its click listener" for a freshly-parsed element that
+    // in fact has none — which is exactly what made every formula in a
+    // reloaded saved document permanently un-editable.
+    const formulaToggleAttached = new WeakSet();
+
     function attachEditToggle(span) {
+        if (formulaToggleAttached.has(span)) return;
+        formulaToggleAttached.add(span);
         span.addEventListener("click", function (e) {
             e.stopPropagation();
             const raw = span.getAttribute("data-latex") || "";
@@ -597,6 +612,10 @@
                     renderInlineMath(el);
                     return;
                 }
+            } else {
+                // formula already rendered (e.g. loaded from a saved
+                // document) — make sure it's actually clickable
+                el.querySelectorAll(".latex-formula").forEach(attachEditToggle);
             }
 
             // Naked-latex (no $ delimiters) is always safe to re-check,

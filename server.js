@@ -20,12 +20,12 @@ app.use("/api/documents", documentsRouter);
 app.use(express.static(path.join(__dirname, "public")));
 
 mongoose
-  .connect(MONGODB_URI)
-  .then(() => {
-    console.log("MongoDB से जुड़ गया");
-    app.listen(PORT, () => console.log("Server चल रहा है: http://localhost:" + PORT));
-  })
-  .catch((err) => {
-    console.error("MongoDB से जुड़ने में समस्या:", err.message);
-    process.exit(1);
-  });
+    .connect(MONGODB_URI)
+    .then(() => {
+        console.log("MongoDB से जुड़ गया");
+        app.listen(PORT, () => console.log("Server चल रहा है: http://localhost:" + PORT));
+    })
+    .catch((err) => {
+        console.error("MongoDB से जुड़ने में समस्या:", err.message);
+        process.exit(1);
+    });
