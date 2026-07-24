@@ -44,3 +44,13 @@ backend/
    - Environment Variables में जोड़ें: `MONGODB_URI` = अपनी Atlas connection string
 
 5. Deploy होने के बाद Render जो URL देगा, वही आपका live editor है।
+
+## PDF Direct-Download के बारे में ज़रूरी बात
+
+"💾 Save A4 PDF" बटन अब backend पर एक headless browser (Puppeteer) चलाकर असली PDF बनाता है और सीधे download कर देता है — पहले वाला browser का print-dialog अब नहीं खुलता।
+
+इसके लिए 2 नई dependencies जुड़ी हैं (`package.json` में पहले से शामिल): `puppeteer-core` और `@sparticuz/chromium`। यह हल्का combo है (सर्वरलेस/सीमित-resource hosting के लिए ही बनाया गया है), पर फिर भी headless Chromium चलाना सामान्य API कॉल से भारी है।
+
+- Render के **free tier** पर यह धीमा हो सकता है या कभी-कभी memory सीमा से टकरा सकता है — अगर ऐसा हो तो थोड़ा इंतज़ार करके दोबारा कोशिश करें, या ज़रूरत पड़े तो paid tier पर upgrade करें।
+- अगर direct-download काम न करे, तो toolbar में मौजूद **"🖨️ Print (fallback)"** बटन से पुराना, browser का print-dialog वाला तरीका हमेशा उपलब्ध है — यह कभी नहीं टूटेगा, चाहे backend में कुछ भी दिक्कत हो।
+

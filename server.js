@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const path = require("path");
 
 const documentsRouter = require("./routes/documents");
+const exportRouter = require("./routes/export");
 
 const app = express();
 const PORT = process.env.PORT || 7700;
@@ -13,6 +14,7 @@ app.use(express.json({ limit: "10mb" })); // editor content can be a fairly larg
 
 // API routes
 app.use("/api/documents", documentsRouter);
+app.use("/api/export-pdf", exportRouter);
 
 // Serve the editor's frontend files (index.html, style.css, *.js)
 // directly from this same server — put your editor files in a
