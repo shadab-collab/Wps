@@ -270,6 +270,41 @@
     let lastTapTime = 0;
     let lastTapTarget = null;
 
+    // TRIPLE tap on a <b>/<strong> run toggles it between bold and
+    // italic+underline (useful for highlighting the key word/line in
+    // an answer differently without hunting for toolbar buttons).
+    const TRIPLE_TAP_MS = 600;
+    let tripleTapTimes = [];
+    let tripleTapTarget = null;
+
+    function trackTripleTap(el) {
+        const now = Date.now();
+        if (tripleTapTarget !== el) {
+            tripleTapTimes = [];
+            tripleTapTarget = el;
+        }
+        tripleTapTimes.push(now);
+        tripleTapTimes = tripleTapTimes.filter((t) => now - t < TRIPLE_TAP_MS);
+        if (tripleTapTimes.length >= 3) {
+            tripleTapTimes = [];
+            toggleBoldToItalicUnderline(el);
+        }
+    }
+
+    function toggleBoldToItalicUnderline(el) {
+        if (el.dataset.tripleToggled === "1") {
+            el.style.fontWeight = "bold";
+            el.style.fontStyle = "normal";
+            el.style.textDecoration = "none";
+            delete el.dataset.tripleToggled;
+        } else {
+            el.style.fontWeight = "normal";
+            el.style.fontStyle = "italic";
+            el.style.textDecoration = "underline";
+            el.dataset.tripleToggled = "1";
+        }
+    }
+
     function findFormulaAncestor(el) {
         return el && el.closest ? el.closest(".latex-formula") : null;
     }
@@ -495,9 +530,14 @@
                     lastTapTarget = mdBlockEl;
                     lastTapTime = now;
                 }
+            } else {
+                // plain tap on ordinary text — native cursor-placement
+                // already happened; separately watch for a TRIPLE tap
+                // landing on bold text (answers often bold the key
+                // word/line), which toggles it to italic+underline.
+                const boldEl = gestureTarget && gestureTarget.closest ? gestureTarget.closest("b, strong") : null;
+                if (boldEl) trackTripleTap(boldEl);
             }
-            // otherwise: plain tap on ordinary text — native
-            // cursor-placement already happened, nothing more to do
         }
 
         if (isDragging && allowCustomPan && (Math.abs(velX) > STOP_VELOCITY_MIN || Math.abs(velY) > STOP_VELOCITY_MIN)) {

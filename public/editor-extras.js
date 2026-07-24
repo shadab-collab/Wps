@@ -7,11 +7,11 @@
    more settled core (formatting, paste, math, images).
    ====================================================== */
 
-(function () {
+(function() {
     "use strict";
-
+    
     window.WPSEditor = window.WPSEditor || {};
-
+    
     /* ==================================================
        4B. MARKDOWN BLOCK RAW-EDIT TOGGLE
        Tables, headings, and bullet lists behave like LaTeX
@@ -43,7 +43,7 @@
         });
         return result;
     }
-
+    
     function domTableToMarkdown(table) {
         const rows = Array.from(table.querySelectorAll("tr"));
         if (!rows.length) return "";
@@ -56,24 +56,24 @@
         lines.splice(1, 0, sep);
         return lines.join("\n");
     }
-
+    
     function domListToMarkdown(list) {
         const items = Array.from(list.children).filter((c) => c.tagName === "LI");
         return items.map((li) => "- " + cleanTextForMarkdown(li).trim()).join("\n");
     }
-
+    
     function domHeadingToMarkdown(h) {
         const level = Number(h.tagName.charAt(1));
         return "#".repeat(level) + " " + cleanTextForMarkdown(h).trim();
     }
-
+    
     function markdownSourceFor(el) {
         if (el.tagName === "TABLE") return domTableToMarkdown(el);
         if (el.tagName === "UL" || el.tagName === "OL") return domListToMarkdown(el);
         if (/^H[1-6]$/.test(el.tagName)) return domHeadingToMarkdown(el);
         return cleanTextForMarkdown(el);
     }
-
+    
     // Reuses the same paste-time Markdown parser to turn edited raw
     // text back into a rendered element, so raw-edit and paste always
     // agree on syntax.
@@ -83,7 +83,7 @@
         temp.innerHTML = html;
         return temp.firstElementChild || document.createTextNode(raw);
     }
-
+    
     function watchForMdBlockExit(editableEl) {
         function check() {
             const sel = window.getSelection();
@@ -99,26 +99,26 @@
         }
         document.addEventListener("selectionchange", check);
     }
-
+    
     const mdToggleAttached = new WeakSet();
-
+    
     function attachMarkdownEditToggle(el) {
         if (!el || mdToggleAttached.has(el)) return;
         mdToggleAttached.add(el);
         if (el.dataset) el.dataset.mdEditable = "1"; // lets the touch-gesture system identify these elements
-        el.addEventListener("dblclick", function (e) {
+        el.addEventListener("dblclick", function(e) {
             e.preventDefault();
             e.stopPropagation();
             const page = window.WPSEditor.closestPage(el);
             if (!page) return;
             const raw = markdownSourceFor(el);
-
+            
             const editable = document.createElement("div");
             editable.className = "md-raw-edit";
             editable.contentEditable = "true";
             editable.textContent = raw;
             el.replaceWith(editable);
-
+            
             const range = document.createRange();
             range.selectNodeContents(editable);
             range.collapse(false);
@@ -126,15 +126,15 @@
             sel.removeAllRanges();
             sel.addRange(range);
             page.focus({ preventScroll: true });
-
+            
             watchForMdBlockExit(editable);
         });
     }
-
+    
     function attachMarkdownBlocksInPage(page) {
         page.querySelectorAll("table, h1, h2, h3, h4, h5, h6, ul, ol").forEach(attachMarkdownEditToggle);
     }
-
+    
     /* ==================================================
        MARKER-DRIVEN LINE TOOLS
        ■ at the start of a line: "क्रमांक" button turns runs of
@@ -145,15 +145,15 @@
     ================================================== */
     const SERIAL_MARKER = "■";
     const BOLD_MARKER = "◆";
-
+    
     function allBlocksInDocOrder() {
         return Array.from(document.querySelectorAll(".page p, .page li"));
     }
-
+    
     function escapeRegExp(s) {
         return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
-
+    
     function findFirstTextNodeStartingWith(el, marker) {
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
         let node;
@@ -162,8 +162,8 @@
         }
         return null;
     }
-
-    window.applySerialNumbers = function () {
+    
+    window.applySerialNumbers = function() {
         const blocks = allBlocksInDocOrder();
         let counter = 0;
         let prevWasMarked = false;
@@ -183,8 +183,8 @@
         });
         window.WPSEditor.scheduleRepagination();
     };
-
-    window.toggleBoldLines = function () {
+    
+    window.toggleBoldLines = function() {
         const blocks = allBlocksInDocOrder();
         blocks.forEach((el) => {
             if (el.textContent.trimStart().indexOf(BOLD_MARKER) === 0) {
@@ -193,7 +193,34 @@
         });
         window.WPSEditor.scheduleRepagination();
     };
-
+    
+    /* ==================================================
+       CLIPBOARD PASTE BUTTON
+       Some devices make the native long-press "Paste" menu
+       unreliable, so this gives an explicit button that reads the
+       clipboard and inserts it through the same Markdown/table
+       parsing pipeline a normal paste event already uses.
+    ================================================== */
+    window.pasteFromClipboard = async function() {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            alert("यह browser क्लिपबोर्ड बटन को सपोर्ट नहीं करता — कृपया सीधे paste करें (hold करके)।");
+            return;
+        }
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text) return;
+            const html = window.WPSEditor.cleanPasteToParagraphs(text) || "<p></p>";
+            document.execCommand("insertHTML", false, html);
+            const sel = window.getSelection();
+            if (sel.rangeCount > 0) {
+                const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
+                if (page) window.WPSEditor.scheduleForPage(page);
+            }
+        } catch (e) {
+            alert("क्लिपबोर्ड पढ़ने की अनुमति नहीं मिली। ब्राउज़र की settings में clipboard access दें।");
+        }
+    };
+    
     Object.assign(window.WPSEditor, {
         attachMarkdownBlocksInPage: attachMarkdownBlocksInPage
     });

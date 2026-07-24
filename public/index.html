@@ -13,6 +13,7 @@
 
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/mhchem.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <link rel="stylesheet" href="style.css">
 </head>
@@ -20,6 +21,15 @@
 <body>
 
 <div class="toolbar no-print">
+
+    <div class="toolbar-group">
+        <button class="btn" onclick="pasteFromClipboard()">📋 Paste</button>
+    </div>
+
+    <div class="toolbar-group">
+        <button id="select-pages-btn" class="btn" onclick="togglePageSelectMode()">🖼️ Select Pages</button>
+        <button class="btn" onclick="exportSelectedPagesAsImage()">📷 Export Image</button>
+    </div>
 
     <div class="toolbar-group">
         <button class="btn btn-success" onclick="docSaveNow()">💾 Save</button>
@@ -100,6 +110,7 @@
 
     <div class="toolbar-group" style="margin-left:auto;">
         <button class="btn btn-success" onclick="saveAsPDF()">💾 Save A4 PDF</button>
+        <button class="btn" onclick="saveAsPDFViaPrint()" title="अगर सीधा download काम न करे तो यह इस्तेमाल करें">🖨️ Print (fallback)</button>
     </div>
 
 </div>
@@ -152,6 +163,7 @@
 <script defer src="zoom-keyboard.js"></script>
 <script defer src="undo-redo.js"></script>
 <script defer src="storage.js"></script>
+<script defer src="page-export.js"></script>
 
 </body>
 </html>

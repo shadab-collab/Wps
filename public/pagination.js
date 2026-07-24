@@ -67,8 +67,13 @@
         page.setAttribute("autocorrect", "off");
         page.setAttribute("autocapitalize", "off");
 
+        const pageNumber = document.createElement("div");
+        pageNumber.className = "page-number";
+        pageNumber.textContent = String(index);
+
         wrapper.appendChild(info);
         wrapper.appendChild(page);
+        wrapper.appendChild(pageNumber);
         attachPageListeners(page);
         return wrapper;
     }
@@ -134,6 +139,13 @@
             if (info) info.textContent = "PAGE " + n;
             const page = wrapper.querySelector(".page");
             if (page) page.id = "page-" + n;
+            let pageNumber = wrapper.querySelector(".page-number");
+            if (!pageNumber) {
+                pageNumber = document.createElement("div");
+                pageNumber.className = "page-number";
+                wrapper.appendChild(pageNumber);
+            }
+            pageNumber.textContent = String(n);
         });
     }
 
@@ -233,9 +245,54 @@
     }
 
     /* ==================================================
-       8. SAVE AS PDF
+       8. SAVE AS PDF (direct download via backend)
     ================================================== */
+    function getCurrentCssVars() {
+        const vars = [
+            "--font-size", "--line-height", "--top-margin", "--bottom-margin",
+            "--inside-margin", "--outside-margin", "--gutter-margin", "--column-gap"
+        ];
+        const style = getComputedStyle(document.documentElement);
+        return vars.map((v) => v + ":" + style.getPropertyValue(v).trim() + ";").join("");
+    }
+
     window.saveAsPDF = function () {
+        repaginateAll(() => {
+            const container = document.getElementById("pages-container");
+            const html = container.innerHTML;
+            const cssVars = getCurrentCssVars();
+
+            fetch("/api/export-pdf", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ html, cssVars })
+            })
+                .then((res) => {
+                    if (!res.ok) throw new Error("export failed");
+                    return res.blob();
+                })
+                .then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "document.pdf";
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                })
+                .catch(() => {
+                    // backend export not available/failed — fall back to
+                    // the browser's own print dialog so PDF export never
+                    // just silently does nothing
+                    window.print();
+                });
+        });
+    };
+
+    // Always-available fallback if the direct download ever misbehaves
+    // on a particular device/browser.
+    window.saveAsPDFViaPrint = function () {
         repaginateAll(() => window.print());
     };
 
