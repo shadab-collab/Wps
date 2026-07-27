@@ -349,6 +349,10 @@
 
     viewport.addEventListener("touchstart", function (e) {
       try {
+        if (e.target && e.target.closest && e.target.closest(".page-select-box, .img-resize-handle")) {
+            return; // our own floating UI controls — let native tap/click handle these untouched
+        }
+
         stopMomentum();
         clearTimeout(holdTimer);
         holdFired = false;
