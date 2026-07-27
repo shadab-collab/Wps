@@ -13,12 +13,27 @@
 
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/mhchem.min.js"></script>
-    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
+
+<div id="landing-screen">
+    <h2>आपका दस्तावेज़</h2>
+
+    <div class="landing-buttons">
+        <button class="btn btn-success" onclick="showNewDocPrompt()">🆕 नया दस्तावेज़</button>
+        <button class="btn" onclick="showSavedDocsList()">📂 सेव्ड दस्तावेज़ खोलें</button>
+    </div>
+
+    <div id="landing-new-form" style="display:none;">
+        <input id="landing-title-input" type="text" placeholder="दस्तावेज़ का नाम लिखें">
+        <button class="btn btn-success" onclick="confirmNewDocFromLanding()">बनाएं</button>
+    </div>
+
+    <div id="landing-saved-list" style="display:none;"></div>
+</div>
 
 <div class="toolbar no-print">
 

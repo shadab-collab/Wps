@@ -169,6 +169,64 @@
     }
 
     /* ------------------------------------------------
+       LANDING SCREEN (shown on first load — choose New or Saved
+       before touching the editor at all)
+    ------------------------------------------------ */
+    function landingScreen() {
+        return document.getElementById("landing-screen");
+    }
+
+    window.showNewDocPrompt = function () {
+        const savedList = document.getElementById("landing-saved-list");
+        const newForm = document.getElementById("landing-new-form");
+        if (savedList) savedList.style.display = "none";
+        if (newForm) newForm.style.display = "flex";
+    };
+
+    window.showSavedDocsList = async function () {
+        const newForm = document.getElementById("landing-new-form");
+        const listEl = document.getElementById("landing-saved-list");
+        if (newForm) newForm.style.display = "none";
+        if (!listEl) return;
+        listEl.style.display = "block";
+        listEl.innerHTML = "लोड हो रहा है...";
+        try {
+            const docs = await apiListDocuments();
+            if (!docs.length) {
+                listEl.innerHTML = "<p>कोई सेव्ड दस्तावेज़ नहीं मिला।</p>";
+                return;
+            }
+            listEl.innerHTML = docs
+                .map(
+                    (d) =>
+                        '<div class="landing-doc-item" onclick="openFromLanding(\'' + d._id + '\')">' +
+                        (d.title || "बिना नाम") +
+                        ' <span class="landing-doc-date">(' + new Date(d.updatedAt).toLocaleDateString("hi-IN") + ")</span></div>"
+                )
+                .join("");
+        } catch (e) {
+            listEl.innerHTML = "<p>सूची लाने में समस्या हुई।</p>";
+        }
+    };
+
+    window.confirmNewDocFromLanding = function () {
+        const input = document.getElementById("landing-title-input");
+        const name = input ? input.value.trim() : "";
+        if (!name) {
+            alert("कृपया दस्तावेज़ का नाम लिखें");
+            return;
+        }
+        newDocument();
+        if (titleInput()) titleInput().value = name;
+        if (landingScreen()) landingScreen().style.display = "none";
+    };
+
+    window.openFromLanding = function (id) {
+        loadDocument(id);
+        if (landingScreen()) landingScreen().style.display = "none";
+    };
+
+    /* ------------------------------------------------
        PUBLIC (toolbar buttons call these)
     ------------------------------------------------ */
     window.docSaveNow = function () {

@@ -39,11 +39,20 @@ backend/
 4. **Render पर नया "Web Service" बनाएं**:
    - अपना GitHub repo select करें
    - Root Directory: `backend` (अगर backend अलग फ़ोल्डर में है)
-   - Build Command: `npm install`
-   - Start Command: `npm start`
+   - **Runtime: "Docker" चुनें** (Node नहीं) — Render अपने-आप `backend/Dockerfile` को पहचानकर उसी से build करेगा
    - Environment Variables में जोड़ें: `MONGODB_URI` = अपनी Atlas connection string
 
 5. Deploy होने के बाद Render जो URL देगा, वही आपका live editor है।
+
+## PDF/Image Export में Hindi Font क्यों Docker से ठीक हुआ
+
+पहले हमने `@sparticuz/chromium` (AWS Lambda के लिए बनाया गया एक बहुत हल्का Chromium) इस्तेमाल किया था — उसमें Devanagari जैसी जटिल लिपियों की rendering-क्षमता ही सीमित/छँटी हुई थी, सिर्फ़ font जोड़ने से ठीक नहीं होता।
+
+अब `Dockerfile` के ज़रिए हम खुद:
+- **पूरा असली Chromium** install करते हैं (`apt-get install chromium`)
+- **Noto fonts** (Devanagari सहित) install करते हैं (`fonts-noto`)
+
+इससे PDF और Image export दोनों में हिंदी हमेशा सही दिखेगी, बिना किसी internet-निर्भर font-loading के।
 
 ## PDF Direct-Download के बारे में ज़रूरी बात
 
