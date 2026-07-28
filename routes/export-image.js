@@ -44,14 +44,17 @@ router.post("/", async (req, res) => {
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             headless: "new",
             args: ["--no-sandbox", "--disable-setuid-sandbox"],
-            defaultViewport: { width: 900, height: 1200, deviceScaleFactor: 3 } // 3x = HD output
+            defaultViewport: { width: 1000, height: 1400, deviceScaleFactor: 2 } // 2x = still HD, lighter than 3x
         });
         const page = await browser.newPage();
-        await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+        await page.setContent(fullHtml, { waitUntil: "networkidle0", timeout: 30000 });
         await page.evaluateHandle("document.fonts.ready");
 
         const el = await page.$("#export-page");
-        const buffer = await el.screenshot({ type: "png" });
+        if (!el) {
+            throw new Error("export-page element not found after setContent");
+        }
+        const buffer = await el.screenshot({ type: "png", captureBeyondViewport: true });
 
         res.set({
             "Content-Type": "image/png",
@@ -60,7 +63,7 @@ router.post("/", async (req, res) => {
         res.send(buffer);
     } catch (err) {
         console.error("Image export error:", err);
-        res.status(500).json({ error: "Image बनाने में समस्या हुई" });
+        res.status(500).json({ error: "Image बनाने में समस्या हुई", detail: String(err && err.message || err) });
     } finally {
         if (browser) await browser.close();
     }

@@ -74,7 +74,14 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ pageHtml: page.innerHTML, cssVars })
         });
-        if (!res.ok) throw new Error("export failed for page " + (index + 1));
+        if (!res.ok) {
+            let detail = "";
+            try {
+                const errBody = await res.json();
+                detail = errBody.detail || errBody.error || "";
+            } catch (e) { /* response wasn't JSON */ }
+            throw new Error("Page " + (index + 1) + ": " + (detail || "export failed"));
+        }
 
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -93,17 +100,17 @@
             return;
         }
         const wrappers = pageWrappers();
-        let failed = 0;
+        const errors = [];
         for (const wrapper of selectedWrappers) {
             const index = wrappers.indexOf(wrapper);
             try {
                 await exportWrapperAsImage(wrapper, index);
             } catch (e) {
-                failed++;
+                errors.push(e.message || String(e));
             }
         }
-        if (failed) {
-            alert(failed + " page(s) को image में बदलने में समस्या हुई। कृपया फिर कोशिश करें।");
+        if (errors.length) {
+            alert("समस्या हुई:\n" + errors.join("\n"));
         }
     };
 })();
