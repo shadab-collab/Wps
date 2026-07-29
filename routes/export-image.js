@@ -44,7 +44,7 @@ router.post("/", async (req, res) => {
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             headless: "new",
             args: ["--no-sandbox", "--disable-setuid-sandbox"],
-            defaultViewport: { width: 1000, height: 1400, deviceScaleFactor: 2 } // 2x = still HD, lighter than 3x
+            defaultViewport: { width: 850, height: 1200, deviceScaleFactor: 1.5 } // lighter than before — still sharp, less resource-heavy
         });
         const page = await browser.newPage();
         await page.setContent(fullHtml, { waitUntil: "networkidle0", timeout: 30000 });

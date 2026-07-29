@@ -172,8 +172,28 @@
         repaginateQueue = allPages();
         let idx = 0;
         let totalIterations = 0;
+        let finished = false;
+
+        // Safety net: if repagination ever gets stuck for any reason
+        // (an edge case with a large document, an unexpected loop,
+        // etc.), this guarantees we still reach finish() within a
+        // bounded time — so print/PDF/save can never silently hang
+        // forever, which is exactly what large (100+ page) documents
+        // need to stay reliable.
+        const watchdog = setTimeout(() => {
+            if (!finished) {
+                if (repaginateFrame) {
+                    cancelAnimationFrame(repaginateFrame);
+                    repaginateFrame = null;
+                }
+                finish();
+            }
+        }, 8000);
 
         function finish() {
+            if (finished) return;
+            finished = true;
+            clearTimeout(watchdog);
             removeEmptyTrailingPages();
             if (savedRange) {
                 try {
@@ -323,7 +343,8 @@
         repaginateAll: repaginateAll,
         attachPageListeners: attachPageListeners,
         createPageWrapper: createPageWrapper,
-        renumberPages: renumberPages
+        renumberPages: renumberPages,
+        getCurrentCssVars: getCurrentCssVars
     });
 
     if (document.readyState === "loading") {
