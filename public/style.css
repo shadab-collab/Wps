@@ -312,7 +312,7 @@ Toolbar
     word-break: normal;
     caret-color: #000;
     user-select: text;
-    column-count: 3;
+    column-count: 6;
     column-gap: var(--column-gap);
     column-rule: 1px dashed #dddddd;
     column-fill: auto;
