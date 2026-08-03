@@ -652,3 +652,149 @@ Toolbar
     }
 
 }
+
+
+
+
+
+/* Backggggggg gggggggg ggggggggg gggggggggggground */
+body {
+    background: #f5f7fb;
+    color: #1f2937;
+}
+
+/* Cards */
+#startPage,
+#quizPage,
+#resultPage,
+#editBox,
+#questionBox,
+#quizHeader,
+#questionList div,
+#activeQuiz div,
+#archiveQuiz div,
+#leaderboard div {
+    
+    background: #ffffff;
+    
+    border: 1px solid #e5e7eb;
+    
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .05);
+    
+}
+
+/* Main Heading */
+h2 {
+    color: #1e40af;
+}
+
+/* Topic */
+#todayTopic {
+    
+    background: #eef4ff;
+    
+    color: #1e40af;
+    
+    border: 1px solid #c7d2fe;
+    
+}
+
+/* Question */
+#questionHindi {
+    color: #111827;
+}
+
+#questionEnglish {
+    color: #6b7280;
+}
+
+/* Options */
+#aBtn,
+#bBtn,
+#cBtn,
+#dBtn {
+    
+    background: #ffffff;
+    
+    color: #111827;
+    
+    border: 1px solid #d1d5db;
+    
+}
+
+#aBtn:hover,
+#bBtn:hover,
+#cBtn:hover,
+#dBtn:hover {
+    
+    background: #f8fafc;
+    
+    border-color: #2563eb;
+    
+}
+
+/* Correct */
+.correct {
+    
+    background: #22c55e !important;
+    
+    color: #fff !important;
+    
+    border-color: #22c55e !important;
+    
+}
+
+/* Wrong */
+.wrong {
+    
+    background: #ef4444 !important;
+    
+    color: #fff !important;
+    
+    border-color: #ef4444 !important;
+    
+}
+
+/* Next Button */
+#nextBtn {
+    
+    background: #2563eb;
+    
+    color: #fff;
+    
+    border: none;
+    
+}
+
+#nextBtn:hover {
+    
+    background: #1d4ed8;
+    
+}
+
+/* Normal Buttons */
+button {
+    
+    background: #ffffff;
+    
+    color: #111827;
+    
+    border: 1px solid #d1d5db;
+    
+}
+
+button:hover {
+    
+    background: #f3f4f6;
+    
+}
+
+/* Score */
+#score {
+    color: #16a34a;
+}
+
+/* Leaderboard Left Border */
+#leaderboard div {
+    border-left: 5px solid #2563eb;
+}
