@@ -260,6 +260,7 @@
     function scheduleForPage(page) {
         debounce(debounceTimers, page, () => {
             window.WPSEditor.renderMathInPage(page);
+            window.WPSEditor.applyAutoBoldToAllQuestionLines(page);
             repaginateAll();
         }, RENDER_DELAY);
     }
@@ -320,7 +321,10 @@
        9. EVENT WIRING
     ================================================== */
     function attachPageListeners(page) {
-        page.addEventListener("input", () => scheduleForPage(page));
+        page.addEventListener("input", () => {
+            window.WPSEditor.checkAutoBoldQuestionLine(page);
+            scheduleForPage(page);
+        });
         page.addEventListener("paste", (e) => window.WPSEditor.handlePaste(e));
         page.addEventListener("focus", () => window.WPSEditor.rememberActivePage());
         page.addEventListener("click", () => window.WPSEditor.rememberActivePage());
