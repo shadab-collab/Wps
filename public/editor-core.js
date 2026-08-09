@@ -336,14 +336,30 @@
             if (tag === "tr") return "<tr>" + inner + "</tr>";
             if (tag === "td") return "<td>" + applyInlineStyleWrap(node, inner) + "</td>";
             if (tag === "th") return "<th>" + applyInlineStyleWrap(node, inner) + "</th>";
-            if (tag === "p" || tag === "div") return "<p>" + applyInlineStyleWrap(node, inner) + "</p>";
+            if (tag === "p" || tag === "div") {
+                const wrapped = applyInlineStyleWrap(node, inner);
+                // Apps like Gemini insert a blank <p></p> (or a <p>
+                // holding only a stray <br>) between sections purely as
+                // spacing — that becomes a visible empty line once our
+                // CSS adds its own paragraph margin on top. Drop any
+                // paragraph with no real text/content instead of
+                // keeping it, so spacing comes only from our CSS.
+                const noBreaks = wrapped.replace(/<br\s*\/?>/gi, "").trim();
+                if (noBreaks === "") return "";
+                return "<p>" + wrapped + "</p>";
+            }
             if (tag === "br") return "<br>";
             // span/font/style-only wrappers etc. — check for bold/italic
             // via inline style, then unwrap, keeping the text/children
             return applyInlineStyleWrap(node, inner);
         }
 
-        const out = Array.from(temp.childNodes).map(cleanNode).join("").trim();
+        let out = Array.from(temp.childNodes).map(cleanNode).join("").trim();
+        // Collapse any run of consecutive <br> (line breaks sitting
+        // directly between block tags, not inside a paragraph) down to
+        // one, and drop empty list items the same way as paragraphs.
+        out = out.replace(/(?:\s*<br>\s*){2,}/gi, "<br>");
+        out = out.replace(/<li>\s*<\/li>/gi, "");
         return out || null;
     }
 
