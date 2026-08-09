@@ -149,6 +149,20 @@
             .replace(/>/g, "&gt;");
     }
 
+    // AI apps (Gemini in particular) pad blank spacing lines with
+    // invisible characters — zero-width space/joiner, BOM — instead of
+    // a truly empty line. A plain .trim() does NOT strip these, so a
+    // "blank" line like this slips past the empty-line check and turns
+    // into a visible empty paragraph. Strip them before testing/using
+    // any line for blankness.
+    const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u00A0]/g;
+    function stripInvisible(str) {
+        return str.replace(INVISIBLE_CHARS, "");
+    }
+    function isBlank(str) {
+        return stripInvisible(str).trim() === "";
+    }
+
     function inlineMarkdown(text) {
         let out = escapeHtml(text);
         out = out.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
@@ -268,8 +282,13 @@
         let inList = false;
         let i = 0;
         while (i < lines.length) {
+            // Note: blankness is checked with invisible chars stripped
+            // (isBlank), but the line content used below keeps them —
+            // Devanagari text can legitimately rely on zero-width
+            // joiner/non-joiner for correct conjunct rendering, so we
+            // must not strip those from real (non-blank) lines.
+            if (isBlank(lines[i])) { i++; continue; } // drop blank lines entirely (incl. invisible-char-only lines)
             const trimmed = lines[i].trim();
-            if (trimmed === "") { i++; continue; } // drop blank lines entirely
 
             if (isTableRow(trimmed)) {
                 if (inList) { htmlParts.push("</ul>"); inList = false; }
@@ -344,8 +363,8 @@
                 // CSS adds its own paragraph margin on top. Drop any
                 // paragraph with no real text/content instead of
                 // keeping it, so spacing comes only from our CSS.
-                const noBreaks = wrapped.replace(/<br\s*\/?>/gi, "").trim();
-                if (noBreaks === "") return "";
+                const noBreaks = wrapped.replace(/<br\s*\/?>/gi, "");
+                if (isBlank(noBreaks)) return "";
                 return "<p>" + wrapped + "</p>";
             }
             if (tag === "br") return "<br>";
