@@ -293,11 +293,72 @@
         return htmlParts.join("");
     }
 
+    // Clipboard "rich" HTML (from copying inside an app like Gemini,
+    // where bold/headings are real formatting, not markdown symbols)
+    // carries the actual <b>/<h2>/<ul> structure — but also a lot of
+    // source-app styling (fonts, colors, spans) we don't want. This
+    // keeps only the semantic tags we care about and drops the rest,
+    // unwrapping anything unrecognised rather than losing its text.
+    function sanitizePastedHtml(rawHtml) {
+        const temp = document.createElement("div");
+        temp.innerHTML = rawHtml;
+        temp.querySelectorAll("script, style, meta, link").forEach((el) => el.remove());
+
+        // Some apps encode bold/italic as inline CSS on a <span>/<font>
+        // wrapper instead of using <b>/<strong>/<i>/<em> tags — this
+        // catches that before the wrapper gets unwrapped away below.
+        function applyInlineStyleWrap(node, inner) {
+            const style = node.getAttribute && node.getAttribute("style");
+            if (!style) return inner;
+            const fw = /font-weight\s*:\s*(\d+|bold)/i.exec(style);
+            const isBold = fw && (fw[1].toLowerCase() === "bold" || parseInt(fw[1], 10) >= 600);
+            const isItalic = /font-style\s*:\s*italic/i.test(style);
+            if (isBold) inner = "<b>" + inner + "</b>";
+            if (isItalic) inner = "<i>" + inner + "</i>";
+            return inner;
+        }
+
+        function cleanNode(node) {
+            if (node.nodeType === 3) return escapeHtml(node.nodeValue);
+            if (node.nodeType !== 1) return "";
+
+            const tag = node.tagName.toLowerCase();
+            const inner = Array.from(node.childNodes).map(cleanNode).join("");
+
+            if (/^h[1-6]$/.test(tag)) return "<" + tag + ">" + inner + "</" + tag + ">";
+            if (tag === "b" || tag === "strong") return "<b>" + inner + "</b>";
+            if (tag === "i" || tag === "em") return "<i>" + inner + "</i>";
+            if (tag === "u") return "<u>" + inner + "</u>";
+            if (tag === "ul") return "<ul>" + inner + "</ul>";
+            if (tag === "ol") return "<ol>" + inner + "</ol>";
+            if (tag === "li") return "<li>" + applyInlineStyleWrap(node, inner) + "</li>";
+            if (tag === "table") return "<table>" + inner + "</table>";
+            if (tag === "tr") return "<tr>" + inner + "</tr>";
+            if (tag === "td") return "<td>" + applyInlineStyleWrap(node, inner) + "</td>";
+            if (tag === "th") return "<th>" + applyInlineStyleWrap(node, inner) + "</th>";
+            if (tag === "p" || tag === "div") return "<p>" + applyInlineStyleWrap(node, inner) + "</p>";
+            if (tag === "br") return "<br>";
+            // span/font/style-only wrappers etc. — check for bold/italic
+            // via inline style, then unwrap, keeping the text/children
+            return applyInlineStyleWrap(node, inner);
+        }
+
+        const out = Array.from(temp.childNodes).map(cleanNode).join("").trim();
+        return out || null;
+    }
+
     function handlePaste(e) {
         e.preventDefault();
-        const text = (e.clipboardData || window.clipboardData).getData("text/plain");
-        if (!text) return;
-        const html = cleanPasteToParagraphs(text) || "<p></p>";
+        const cd = e.clipboardData || window.clipboardData;
+        const rawHtml = cd.getData("text/html");
+        const text = cd.getData("text/plain");
+
+        let html = rawHtml ? sanitizePastedHtml(rawHtml) : null;
+        if (!html) {
+            if (!text) return;
+            html = cleanPasteToParagraphs(text) || "<p></p>";
+        }
+
         document.execCommand("insertHTML", false, html);
         const page = closestPage(e.target);
         if (page) window.WPSEditor.scheduleForPage(page);
