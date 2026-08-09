@@ -838,6 +838,7 @@
         handlePaste: handlePaste,
         rememberActivePage: rememberActivePage,
         cleanPasteToParagraphs: cleanPasteToParagraphs,
+        sanitizePastedHtml: sanitizePastedHtml,
         initCore: initCore
     });
 })();
