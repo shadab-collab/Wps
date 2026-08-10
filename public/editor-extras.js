@@ -201,23 +201,68 @@
        clipboard and inserts it through the same Markdown/table
        parsing pipeline a normal paste event already uses.
     ================================================== */
-    window.pasteFromClipboard = async function () {
-        if (!navigator.clipboard || !navigator.clipboard.readText) {
-            alert("यह browser क्लिपबोर्ड बटन को सपोर्ट नहीं करता — कृपया सीधे paste करें (hold करके)।");
-            return;
+    // Reads the OS clipboard directly. Prefers the rich "text/html"
+    // entry (real <b>/<h2>/<ul> from apps like Gemini/Keep) so bold
+    // and headings survive; falls back to plain text + Markdown
+    // parsing only when no HTML flavor is on the clipboard, and
+    // finally to the old readText()-only path on very old browsers.
+    async function readClipboardHtmlAndText() {
+        if (!navigator.clipboard || !navigator.clipboard.read) return null;
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            if (item.types.includes("text/html")) {
+                const blob = await item.getType("text/html");
+                const html = await blob.text();
+                if (html && html.trim()) return { html: html };
+            }
         }
+        for (const item of items) {
+            if (item.types.includes("text/plain")) {
+                const blob = await item.getType("text/plain");
+                const text = await blob.text();
+                if (text) return { text: text };
+            }
+        }
+        return null;
+    }
+
+    window.pasteFromClipboard = async function () {
+        let html = null;
+
         try {
-            const text = await navigator.clipboard.readText();
-            if (!text) return;
-            const html = window.WPSEditor.cleanPasteToParagraphs(text) || "<p></p>";
-            document.execCommand("insertHTML", false, html);
-            const sel = window.getSelection();
-            if (sel.rangeCount > 0) {
-                const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
-                if (page) window.WPSEditor.scheduleForPage(page);
+            const result = await readClipboardHtmlAndText();
+            if (result && result.html) {
+                html = window.WPSEditor.sanitizePastedHtml(result.html);
+            }
+            if (!html && result && result.text) {
+                html = window.WPSEditor.cleanPasteToParagraphs(result.text);
             }
         } catch (e) {
-            alert("क्लिपबोर्ड पढ़ने की अनुमति नहीं मिली। ब्राउज़र की settings में clipboard access दें।");
+            // navigator.clipboard.read() missing/denied — try the
+            // plain-text-only API as a last resort below.
+        }
+
+        if (!html) {
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+                alert("यह browser क्लिपबोर्ड बटन को सपोर्ट नहीं करता — कृपया सीधे paste करें (hold करके)।");
+                return;
+            }
+            try {
+                const text = await navigator.clipboard.readText();
+                if (!text) return;
+                html = window.WPSEditor.cleanPasteToParagraphs(text);
+            } catch (e) {
+                alert("क्लिपबोर्ड पढ़ने की अनुमति नहीं मिली। ब्राउज़र की settings में clipboard access दें।");
+                return;
+            }
+        }
+
+        html = html || "<p></p>";
+        document.execCommand("insertHTML", false, html);
+        const sel = window.getSelection();
+        if (sel.rangeCount > 0) {
+            const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
+            if (page) window.WPSEditor.scheduleForPage(page);
         }
     };
 
