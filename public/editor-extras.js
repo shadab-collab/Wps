@@ -13,46 +13,6 @@
     window.WPSEditor = window.WPSEditor || {};
 
     /* ==================================================
-       REMOVE EMPTY LINES
-       Manual cleanup button: after pasting (from Gemini or anywhere
-       else), this walks every page and deletes any paragraph/list
-       item that has no real visible content — including lines that
-       only contain invisible characters (zero-width space etc.) or
-       a stray <br>. Anything with real text, an image, a table, or a
-       math formula is left untouched. Runs on demand so the user
-       decides when to clean up, instead of us guessing at paste time.
-    ================================================== */
-    function blockHasRealContent(el) {
-        // Keep any line that carries non-text content — an image,
-        // table, or rendered/raw math formula — even if its text
-        // looks empty.
-        if (el.querySelector("img, table, .latex-formula")) return true;
-        const text = el.textContent.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g, "").trim();
-        return text !== "";
-    }
-
-    window.removeEmptyLines = function () {
-        const pages = window.WPSEditor.allPages();
-        let removedCount = 0;
-        pages.forEach((page) => {
-            page.querySelectorAll("p, li").forEach((el) => {
-                if (!blockHasRealContent(el)) {
-                    el.remove();
-                    removedCount++;
-                }
-            });
-            // A list left with no <li> after the above has nothing to
-            // show — drop the now-empty wrapper too.
-            page.querySelectorAll("ul, ol").forEach((el) => {
-                if (!el.querySelector("li")) el.remove();
-            });
-        });
-        window.WPSEditor.renumberPages();
-        window.WPSEditor.repaginateAll();
-        if (removedCount === 0) alert("कोई खाली पंक्ति नहीं मिली।");
-    };
-
-    /* ==================================================
        4B. MARKDOWN BLOCK RAW-EDIT TOGGLE
        Tables, headings, and bullet lists behave like LaTeX
        formulas: double-tap reveals the underlying Markdown source
@@ -241,68 +201,23 @@
        clipboard and inserts it through the same Markdown/table
        parsing pipeline a normal paste event already uses.
     ================================================== */
-    // Reads the OS clipboard directly. Prefers the rich "text/html"
-    // entry (real <b>/<h2>/<ul> from apps like Gemini/Keep) so bold
-    // and headings survive; falls back to plain text + Markdown
-    // parsing only when no HTML flavor is on the clipboard, and
-    // finally to the old readText()-only path on very old browsers.
-    async function readClipboardHtmlAndText() {
-        if (!navigator.clipboard || !navigator.clipboard.read) return null;
-        const items = await navigator.clipboard.read();
-        for (const item of items) {
-            if (item.types.includes("text/html")) {
-                const blob = await item.getType("text/html");
-                const html = await blob.text();
-                if (html && html.trim()) return { html: html };
-            }
-        }
-        for (const item of items) {
-            if (item.types.includes("text/plain")) {
-                const blob = await item.getType("text/plain");
-                const text = await blob.text();
-                if (text) return { text: text };
-            }
-        }
-        return null;
-    }
-
     window.pasteFromClipboard = async function () {
-        let html = null;
-
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            alert("यह browser क्लिपबोर्ड बटन को सपोर्ट नहीं करता — कृपया सीधे paste करें (hold करके)।");
+            return;
+        }
         try {
-            const result = await readClipboardHtmlAndText();
-            if (result && result.html) {
-                html = window.WPSEditor.sanitizePastedHtml(result.html);
-            }
-            if (!html && result && result.text) {
-                html = window.WPSEditor.cleanPasteToParagraphs(result.text);
+            const text = await navigator.clipboard.readText();
+            if (!text) return;
+            const html = window.WPSEditor.cleanPasteToParagraphs(text) || "<p></p>";
+            document.execCommand("insertHTML", false, html);
+            const sel = window.getSelection();
+            if (sel.rangeCount > 0) {
+                const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
+                if (page) window.WPSEditor.scheduleForPage(page);
             }
         } catch (e) {
-            // navigator.clipboard.read() missing/denied — try the
-            // plain-text-only API as a last resort below.
-        }
-
-        if (!html) {
-            if (!navigator.clipboard || !navigator.clipboard.readText) {
-                alert("यह browser क्लिपबोर्ड बटन को सपोर्ट नहीं करता — कृपया सीधे paste करें (hold करके)।");
-                return;
-            }
-            try {
-                const text = await navigator.clipboard.readText();
-                if (!text) return;
-                html = window.WPSEditor.cleanPasteToParagraphs(text);
-            } catch (e) {
-                alert("क्लिपबोर्ड पढ़ने की अनुमति नहीं मिली। ब्राउज़र की settings में clipboard access दें।");
-                return;
-            }
-        }
-
-        html = html || "<p></p>";
-        document.execCommand("insertHTML", false, html);
-        const sel = window.getSelection();
-        if (sel.rangeCount > 0) {
-            const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
-            if (page) window.WPSEditor.scheduleForPage(page);
+            alert("क्लिपबोर्ड पढ़ने की अनुमति नहीं मिली। ब्राउज़र की settings में clipboard access दें।");
         }
     };
 
