@@ -303,6 +303,10 @@
             }
 
             const isBullet = /^[-*]\s+/.test(trimmed);
+            if (isBullet) {
+                const bulletContent = trimmed.replace(/^[-*]\s+/, "");
+                if (isBlank(bulletContent)) { i++; continue; } // bullet marker with no real text — drop it
+            }
             if (isBullet && !inList) { htmlParts.push("<ul>"); inList = true; }
             if (!isBullet && inList) { htmlParts.push("</ul>"); inList = false; }
             htmlParts.push(markdownLineToHtml(trimmed));
@@ -350,7 +354,16 @@
             if (tag === "u") return "<u>" + inner + "</u>";
             if (tag === "ul") return "<ul>" + inner + "</ul>";
             if (tag === "ol") return "<ol>" + inner + "</ol>";
-            if (tag === "li") return "<li>" + applyInlineStyleWrap(node, inner) + "</li>";
+            if (tag === "li") {
+                const wrapped = applyInlineStyleWrap(node, inner);
+                // Same reasoning as <p> above: a list item that Gemini
+                // padded with only an invisible character/<br> is not
+                // a real bullet — drop it instead of rendering an
+                // empty "•" line.
+                const noBreaks = wrapped.replace(/<br\s*\/?>/gi, "");
+                if (isBlank(noBreaks)) return "";
+                return "<li>" + wrapped + "</li>";
+            }
             if (tag === "table") return "<table>" + inner + "</table>";
             if (tag === "tr") return "<tr>" + inner + "</tr>";
             if (tag === "td") return "<td>" + applyInlineStyleWrap(node, inner) + "</td>";

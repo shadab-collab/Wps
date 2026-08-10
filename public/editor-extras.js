@@ -35,7 +35,7 @@
         const pages = window.WPSEditor.allPages();
         let removedCount = 0;
         pages.forEach((page) => {
-            page.querySelectorAll("p, li").forEach((el) => {
+            page.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6").forEach((el) => {
                 if (!blockHasRealContent(el)) {
                     el.remove();
                     removedCount++;
@@ -84,8 +84,19 @@
         return result;
     }
 
+    // Same invisible-character definition as the paste-time cleaner in
+    // editor-core.js (zero-width space/joiner, BOM, NBSP) — Gemini and
+    // similar apps use these for spacing instead of a truly empty
+    // line, so a plain .trim() alone won't catch them as blank.
+    const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u00A0]/g;
+    function isBlankMd(str) {
+        return str.replace(INVISIBLE_CHARS, "").trim() === "";
+    }
+
     function domTableToMarkdown(table) {
-        const rows = Array.from(table.querySelectorAll("tr"));
+        const rows = Array.from(table.querySelectorAll("tr")).filter(
+            (tr) => !Array.from(tr.children).every((c) => isBlankMd(cleanTextForMarkdown(c)))
+        );
         if (!rows.length) return "";
         const lines = rows.map((tr) => {
             const cells = Array.from(tr.children).map((c) => cleanTextForMarkdown(c).trim());
@@ -98,7 +109,9 @@
     }
 
     function domListToMarkdown(list) {
-        const items = Array.from(list.children).filter((c) => c.tagName === "LI");
+        const items = Array.from(list.children).filter(
+            (c) => c.tagName === "LI" && !isBlankMd(cleanTextForMarkdown(c))
+        );
         return items.map((li) => "- " + cleanTextForMarkdown(li).trim()).join("\n");
     }
 
