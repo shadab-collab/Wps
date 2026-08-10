@@ -13,6 +13,46 @@
     window.WPSEditor = window.WPSEditor || {};
 
     /* ==================================================
+       REMOVE EMPTY LINES
+       Manual cleanup button: after pasting (from Gemini or anywhere
+       else), this walks every page and deletes any paragraph/list
+       item that has no real visible content — including lines that
+       only contain invisible characters (zero-width space etc.) or
+       a stray <br>. Anything with real text, an image, a table, or a
+       math formula is left untouched. Runs on demand so the user
+       decides when to clean up, instead of us guessing at paste time.
+    ================================================== */
+    function blockHasRealContent(el) {
+        // Keep any line that carries non-text content — an image,
+        // table, or rendered/raw math formula — even if its text
+        // looks empty.
+        if (el.querySelector("img, table, .latex-formula")) return true;
+        const text = el.textContent.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g, "").trim();
+        return text !== "";
+    }
+
+    window.removeEmptyLines = function () {
+        const pages = window.WPSEditor.allPages();
+        let removedCount = 0;
+        pages.forEach((page) => {
+            page.querySelectorAll("p, li").forEach((el) => {
+                if (!blockHasRealContent(el)) {
+                    el.remove();
+                    removedCount++;
+                }
+            });
+            // A list left with no <li> after the above has nothing to
+            // show — drop the now-empty wrapper too.
+            page.querySelectorAll("ul, ol").forEach((el) => {
+                if (!el.querySelector("li")) el.remove();
+            });
+        });
+        window.WPSEditor.renumberPages();
+        window.WPSEditor.repaginateAll();
+        if (removedCount === 0) alert("कोई खाली पंक्ति नहीं मिली।");
+    };
+
+    /* ==================================================
        4B. MARKDOWN BLOCK RAW-EDIT TOGGLE
        Tables, headings, and bullet lists behave like LaTeX
        formulas: double-tap reveals the underlying Markdown source
