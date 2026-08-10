@@ -46,6 +46,12 @@
             page.querySelectorAll("ul, ol").forEach((el) => {
                 if (!el.querySelector("li")) el.remove();
             });
+            // Also re-normalize every table/list/heading on the page —
+            // this is the same cleanup that used to require double-
+            // tapping each block and tapping away, now forced for all
+            // of them (even ones already marked "clean" earlier, so
+            // content pasted before this fix existed gets caught too).
+            if (window.WPSEditor.normalizeAllMdBlocksInPage) window.WPSEditor.normalizeAllMdBlocksInPage(page);
         });
         window.WPSEditor.renumberPages();
         window.WPSEditor.repaginateAll();
@@ -185,7 +191,49 @@
     }
 
     function attachMarkdownBlocksInPage(page) {
-        page.querySelectorAll("table, h1, h2, h3, h4, h5, h6, ul, ol").forEach(attachMarkdownEditToggle);
+        page.querySelectorAll("table, h1, h2, h3, h4, h5, h6, ul, ol").forEach((el) => {
+            if (mdToggleAttached.has(el)) return; // already normalized earlier — leave alone
+            normalizeMdBlock(el);
+        });
+    }
+
+    // True while the caret is inside this element — used to skip
+    // normalizing a block the user is actively typing in, so we never
+    // yank the DOM out from under an in-progress edit.
+    function elementContainsSelection(el) {
+        const sel = window.getSelection();
+        return !!(sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer));
+    }
+
+    // Runs the exact same "read the block as Markdown, re-parse it"
+    // round trip that happens today when you double-tap a block and
+    // then tap away — but automatically, with no box ever shown. This
+    // is what actually removes the stray blank/invisible bullet lines
+    // and odd spacing that paste alone leaves behind (see
+    // domListToMarkdown / domTableToMarkdown above, which already skip
+    // blank rows — this is what puts that cleaned version back on the
+    // page). Returns the element now on the page (new or original).
+    function normalizeMdBlock(el) {
+        if (!el.isConnected || elementContainsSelection(el)) {
+            attachMarkdownEditToggle(el); // still editable; just don't rebuild it right now
+            return el;
+        }
+        const raw = markdownSourceFor(el);
+        const rendered = markdownSourceToElement(raw);
+        if (rendered && rendered.nodeType === 1) {
+            el.replaceWith(rendered);
+            attachMarkdownEditToggle(rendered);
+            return rendered;
+        }
+        attachMarkdownEditToggle(el);
+        return el;
+    }
+
+    // Forces re-normalization even for blocks already marked "clean"
+    // — used by the manual cleanup button so it also fixes spacing on
+    // content that was pasted before this normalizing existed.
+    function normalizeAllMdBlocksInPage(page) {
+        Array.from(page.querySelectorAll("table, h1, h2, h3, h4, h5, h6, ul, ol")).forEach(normalizeMdBlock);
     }
 
     /* ==================================================
@@ -367,6 +415,7 @@
 
     Object.assign(window.WPSEditor, {
         attachMarkdownBlocksInPage: attachMarkdownBlocksInPage,
+        normalizeAllMdBlocksInPage: normalizeAllMdBlocksInPage,
         checkAutoBoldQuestionLine: window.checkAutoBoldQuestionLine,
         applyAutoBoldToAllQuestionLines: window.applyAutoBoldToAllQuestionLines
     });
