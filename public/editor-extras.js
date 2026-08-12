@@ -32,16 +32,13 @@
     }
 
     // Force-closes any raw-edit box currently stuck open (see the
-    // blur/selectionchange note above — this is the direct cleanup for
+    // blur/selectionchange note below — this is the direct cleanup for
     // ones that got stuck before that fix, or by some other fluke)
-    // instead of waiting for the user to somehow refocus them.
+    // instead of waiting for the user to somehow refocus them. Uses
+    // the same safe renderer as normal exit, so this can no longer
+    // wipe a box's content the way a plain rebuild-and-replace could.
     function closeAllOpenMdRawEdits() {
-        document.querySelectorAll(".md-raw-edit").forEach((editableEl) => {
-            const raw = editableEl.textContent;
-            const rendered = markdownSourceToElement(raw);
-            attachMarkdownEditToggle(rendered);
-            editableEl.replaceWith(rendered);
-        });
+        document.querySelectorAll(".md-raw-edit").forEach(renderRawEditBoxSafely);
     }
 
     window.removeEmptyLines = function () {
@@ -165,12 +162,85 @@
 
     // Reuses the same paste-time Markdown parser to turn edited raw
     // text back into a rendered element, so raw-edit and paste always
-    // agree on syntax.
+    // agree on syntax. IMPORTANT: parsing a big block of raw text can
+    // legitimately produce MULTIPLE top-level elements (e.g. a stray
+    // non-bullet line in the middle of a list closes that <ul> and
+    // opens a new one after it) — returning only the first one, as
+    // this used to do, silently threw everything after it away. A
+    // DocumentFragment carries all of them; replaceWith() unpacks a
+    // fragment's children automatically, so every caller keeps working
+    // unchanged.
     function markdownSourceToElement(raw) {
         const html = window.WPSEditor.cleanPasteToParagraphs(raw) || "<p></p>";
         const temp = document.createElement("div");
         temp.innerHTML = html;
-        return temp.firstElementChild || document.createTextNode(raw);
+        if (!temp.firstChild) return document.createTextNode(raw);
+        const frag = document.createDocumentFragment();
+        while (temp.firstChild) frag.appendChild(temp.firstChild);
+        return frag;
+    }
+
+    // attachMarkdownEditToggle only makes sense on an actual
+    // table/heading/list element — call it on each such top-level node
+    // BEFORE the fragment is inserted (inserting a DocumentFragment
+    // empties it, so attaching to the fragment itself would attach to
+    // nothing).
+    function attachToggleToTopNodes(nodeOrFragment) {
+        const nodes = nodeOrFragment.nodeType === 11 ? Array.from(nodeOrFragment.childNodes) : [nodeOrFragment];
+        nodes.forEach((node) => {
+            if (node.nodeType === 1 && /^(TABLE|UL|OL|H[1-6])$/.test(node.tagName)) {
+                attachMarkdownEditToggle(node);
+            }
+        });
+    }
+
+    // Guaranteed-safe fallback for a raw-edit box: one <p> per non-
+    // blank line, no bullet/table/heading reconstruction attempted.
+    // Used only when the normal rebuild looks like it lost content —
+    // this can never lose a line, so it's the last line of defense
+    // against ending up with an empty page.
+    function safeParagraphFallback(raw) {
+        const frag = document.createDocumentFragment();
+        raw.split("\n").forEach((line) => {
+            if (isBlankMd(line)) return;
+            const p = document.createElement("p");
+            p.textContent = line.replace(/^\s*[-*]\s+/, "").trim();
+            frag.appendChild(p);
+        });
+        return frag.childNodes.length ? frag : null;
+    }
+
+    function isSafeRawRebuild(raw, rendered) {
+        const origText = raw.replace(INVISIBLE_CHARS, "").trim();
+        const newText = (rendered.textContent || "").replace(INVISIBLE_CHARS, "").trim();
+        if (origText.length > 20 && newText.length < origText.length * 0.7) return false;
+
+        const nonBlankLines = raw.split("\n").filter((l) => !isBlankMd(l)).length;
+        const newRows = rendered.querySelectorAll
+            ? rendered.querySelectorAll("li, tr, p, h1, h2, h3, h4, h5, h6").length
+            : 0;
+        if (nonBlankLines > 1 && newRows < nonBlankLines * 0.6) return false;
+
+        return true;
+    }
+
+    // The one place a raw-edit box turns back into rendered content —
+    // used on normal exit (tap/scroll away) AND by the manual cleanup
+    // button for boxes found stuck open. Tries the real Markdown
+    // rebuild first; if that looks like it lost content, drops to the
+    // line-preserving fallback instead of ever leaving the page blank.
+    function renderRawEditBoxSafely(editableEl) {
+        const raw = editableEl.textContent;
+        let rendered = markdownSourceToElement(raw);
+        if (!rendered || rendered.nodeType === 3 || !isSafeRawRebuild(raw, rendered)) {
+            rendered = safeParagraphFallback(raw);
+        }
+        if (!rendered) {
+            editableEl.remove(); // raw was entirely blank — nothing to keep
+            return;
+        }
+        attachToggleToTopNodes(rendered);
+        editableEl.replaceWith(rendered);
     }
 
     function watchForMdBlockExit(editableEl) {
@@ -181,10 +251,7 @@
             editableEl.removeEventListener("blur", exit);
             document.removeEventListener("selectionchange", check);
             if (!editableEl.isConnected) return;
-            const raw = editableEl.textContent;
-            const rendered = markdownSourceToElement(raw);
-            attachMarkdownEditToggle(rendered);
-            editableEl.replaceWith(rendered);
+            renderRawEditBoxSafely(editableEl);
             if (window.WPSEditor.scheduleRepagination) window.WPSEditor.scheduleRepagination();
         }
         function check() {
@@ -287,9 +354,12 @@
         }
         const raw = markdownSourceFor(el);
         const rendered = markdownSourceToElement(raw);
-        if (rendered && rendered.nodeType === 1 && isSafeReplacement(el, rendered)) {
+        // rendered is a DocumentFragment (nodeType 11) on the normal
+        // path, or a bare text node (nodeType 3) only if parsing
+        // produced nothing at all.
+        if (rendered && rendered.nodeType !== 3 && isSafeReplacement(el, rendered)) {
+            attachToggleToTopNodes(rendered);
             el.replaceWith(rendered);
-            attachMarkdownEditToggle(rendered);
             return rendered;
         }
         attachMarkdownEditToggle(el);
