@@ -31,7 +31,21 @@
         return text !== "";
     }
 
+    // Force-closes any raw-edit box currently stuck open (see the
+    // blur/selectionchange note above — this is the direct cleanup for
+    // ones that got stuck before that fix, or by some other fluke)
+    // instead of waiting for the user to somehow refocus them.
+    function closeAllOpenMdRawEdits() {
+        document.querySelectorAll(".md-raw-edit").forEach((editableEl) => {
+            const raw = editableEl.textContent;
+            const rendered = markdownSourceToElement(raw);
+            attachMarkdownEditToggle(rendered);
+            editableEl.replaceWith(rendered);
+        });
+    }
+
     window.removeEmptyLines = function () {
+        closeAllOpenMdRawEdits();
         const pages = window.WPSEditor.allPages();
         let removedCount = 0;
         pages.forEach((page) => {
@@ -160,18 +174,34 @@
     }
 
     function watchForMdBlockExit(editableEl) {
+        let exited = false;
+        function exit() {
+            if (exited) return;
+            exited = true;
+            editableEl.removeEventListener("blur", exit);
+            document.removeEventListener("selectionchange", check);
+            if (!editableEl.isConnected) return;
+            const raw = editableEl.textContent;
+            const rendered = markdownSourceToElement(raw);
+            attachMarkdownEditToggle(rendered);
+            editableEl.replaceWith(rendered);
+            if (window.WPSEditor.scheduleRepagination) window.WPSEditor.scheduleRepagination();
+        }
         function check() {
             const sel = window.getSelection();
             const stillInside = sel.rangeCount > 0 && editableEl.isConnected && editableEl.contains(sel.getRangeAt(0).startContainer);
-            if (!stillInside) {
-                document.removeEventListener("selectionchange", check);
-                const raw = editableEl.textContent;
-                const rendered = markdownSourceToElement(raw);
-                attachMarkdownEditToggle(rendered);
-                editableEl.replaceWith(rendered);
-                if (window.WPSEditor.scheduleRepagination) window.WPSEditor.scheduleRepagination();
-            }
+            if (!stillInside) exit();
         }
+        // selectionchange alone isn't reliable for a block big enough to
+        // span past what's on screen — scrolling away and tapping a
+        // toolbar button, or tapping blank page margin, can leave this
+        // box "stuck" open (still showing raw "- dashes" text in its
+        // dashed border) because no new text selection ever gets made
+        // elsewhere. A plain contenteditable blur is a much more
+        // reliable "the user left this box" signal, so it's the
+        // primary trigger; selectionchange stays as a fallback for the
+        // normal case of tapping straight into another line of text.
+        editableEl.addEventListener("blur", exit);
         document.addEventListener("selectionchange", check);
     }
 
