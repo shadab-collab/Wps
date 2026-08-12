@@ -82,8 +82,24 @@
             } else if (node.nodeType === 1) {
                 if (node.classList && node.classList.contains("latex-formula")) {
                     result += node.getAttribute("data-latex") || "";
+                } else if (node.tagName === "BR") {
+                    // A <br> is a real line break in the original —
+                    // gluing the words on either side together with no
+                    // separator at all makes the text unreadable and,
+                    // for something like "प्रश्न...<br>उत्तर:...", can
+                    // even fuse two sentences into one illegible run.
+                    // A single space keeps them as separate words.
+                    if (result && !/\s$/.test(result)) result += " ";
                 } else {
+                    const before = result;
                     result += cleanTextForMarkdown(node);
+                    // Same reasoning for block-level children (nested
+                    // <p>, <li>, headings, table cells): keep them from
+                    // running into each other with zero separation.
+                    const BLOCK_TAGS = /^(P|DIV|LI|H[1-6]|TR|TD|TH)$/;
+                    if (BLOCK_TAGS.test(node.tagName) && result.length > before.length && !/\s$/.test(result)) {
+                        result += " ";
+                    }
                 }
             }
         });
@@ -205,6 +221,27 @@
         return !!(sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer));
     }
 
+    // Safety net: the Markdown round-trip must never make a block
+    // WORSE. Real content (a list item that itself spans several
+    // lines, an oddly-nested table row, etc.) can come out of
+    // cleanTextForMarkdown squeezed together in ways we didn't
+    // anticipate — that's a cosmetic problem we can live with, but it
+    // must never turn into actual data loss. Refuse the rebuilt
+    // version — and keep the original exactly as it was — if it has
+    // noticeably less text or fewer rows/items than what was there
+    // before.
+    function isSafeReplacement(original, rebuilt) {
+        const origText = original.textContent.replace(INVISIBLE_CHARS, "").trim();
+        const newText = rebuilt.textContent.replace(INVISIBLE_CHARS, "").trim();
+        if (origText.length > 20 && newText.length < origText.length * 0.7) return false;
+
+        const origRows = original.querySelectorAll("li, tr").length;
+        const newRows = rebuilt.querySelectorAll("li, tr").length;
+        if (origRows > 1 && newRows < origRows) return false;
+
+        return true;
+    }
+
     // Runs the exact same "read the block as Markdown, re-parse it"
     // round trip that happens today when you double-tap a block and
     // then tap away — but automatically, with no box ever shown. This
@@ -220,7 +257,7 @@
         }
         const raw = markdownSourceFor(el);
         const rendered = markdownSourceToElement(raw);
-        if (rendered && rendered.nodeType === 1) {
+        if (rendered && rendered.nodeType === 1 && isSafeReplacement(el, rendered)) {
             el.replaceWith(rendered);
             attachMarkdownEditToggle(rendered);
             return rendered;
