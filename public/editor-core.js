@@ -245,7 +245,12 @@
             const level = Math.min(heading[1].length, 6);
             return "<h" + level + ">" + inlineMarkdown(heading[2]) + "</h" + level + ">";
         }
-        const bullet = line.match(/^[-*]\s+(.*)$/);
+        // Both "- item"/"* item" (unordered) and "1. item"/"1) item"
+        // (numbered) become a plain <li> — which list type wraps it
+        // (<ul> vs <ol>) is decided by the caller based on the marker,
+        // so a numbered source list round-trips back to a numbered
+        // list instead of silently becoming bulleted.
+        const bullet = line.match(/^(?:[-*]|\d+[.)])\s+(.*)$/);
         if (bullet) {
             return "<li>" + inlineMarkdown(bullet[1]) + "</li>";
         }
@@ -279,7 +284,7 @@
     function cleanPasteToParagraphs(text) {
         const lines = text.replace(/\r\n/g, "\n").split("\n");
         const htmlParts = [];
-        let inList = false;
+        let inList = null; // null, or "ul"/"ol" for whichever is currently open
         let i = 0;
         while (i < lines.length) {
             // Note: blankness is checked with invisible chars stripped
@@ -291,7 +296,7 @@
             const trimmed = lines[i].trim();
 
             if (isTableRow(trimmed)) {
-                if (inList) { htmlParts.push("</ul>"); inList = false; }
+                if (inList) { htmlParts.push("</" + inList + ">"); inList = null; }
                 const rows = [];
                 while (i < lines.length && isTableRow(lines[i].trim())) {
                     const rowLine = lines[i].trim();
@@ -302,17 +307,27 @@
                 continue;
             }
 
-            const isBullet = /^[-*]\s+/.test(trimmed);
+            // "- item"/"* item" is unordered; "1. item"/"1) item" is
+            // numbered — track which one so a numbered source list
+            // round-trips back to <ol>, not a bullet <ul>.
+            const ulMatch = /^[-*]\s+/.test(trimmed);
+            const olMatch = !ulMatch && /^\d+[.)]\s+/.test(trimmed);
+            const isBullet = ulMatch || olMatch;
+            const listType = ulMatch ? "ul" : olMatch ? "ol" : null;
             if (isBullet) {
-                const bulletContent = trimmed.replace(/^[-*]\s+/, "");
+                const bulletContent = trimmed.replace(/^(?:[-*]|\d+[.)])\s+/, "");
                 if (isBlank(bulletContent)) { i++; continue; } // bullet marker with no real text — drop it
             }
-            if (isBullet && !inList) { htmlParts.push("<ul>"); inList = true; }
-            if (!isBullet && inList) { htmlParts.push("</ul>"); inList = false; }
+            if (isBullet && inList !== listType) {
+                if (inList) htmlParts.push("</" + inList + ">");
+                htmlParts.push("<" + listType + ">");
+                inList = listType;
+            }
+            if (!isBullet && inList) { htmlParts.push("</" + inList + ">"); inList = null; }
             htmlParts.push(markdownLineToHtml(trimmed));
             i++;
         }
-        if (inList) htmlParts.push("</ul>");
+        if (inList) htmlParts.push("</" + inList + ">");
         return htmlParts.join("");
     }
 

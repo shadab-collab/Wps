@@ -145,7 +145,14 @@
         const items = Array.from(list.children).filter(
             (c) => c.tagName === "LI" && !isBlankMd(cleanTextForMarkdown(c))
         );
-        return items.map((li) => "- " + cleanTextForMarkdown(li).trim()).join("\n");
+        // Keep numbered lists numbered through the round trip — an
+        // <ol> becomes "1. item", "2. item"... (cleanPasteToParagraphs
+        // rebuilds an <ol> from that); a <ul> keeps the plain "- item"
+        // it always used, rebuilding a bullet <ul>.
+        const ordered = list.tagName === "OL";
+        return items
+            .map((li, idx) => (ordered ? idx + 1 + ". " : "- ") + cleanTextForMarkdown(li).trim())
+            .join("\n");
     }
 
     function domHeadingToMarkdown(h) {
@@ -204,7 +211,7 @@
         raw.split("\n").forEach((line) => {
             if (isBlankMd(line)) return;
             const p = document.createElement("p");
-            p.textContent = line.replace(/^\s*[-*]\s+/, "").trim();
+            p.textContent = line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").trim();
             frag.appendChild(p);
         });
         return frag.childNodes.length ? frag : null;
