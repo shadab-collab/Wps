@@ -106,6 +106,16 @@
         return !!el && el.dataset && el.dataset.splitContinuation === "true";
     }
 
+    // A table's first row is always the header (built with <th> cells
+    // — see tableRowsToHtml in editor-core.js). Splitting a table must
+    // keep that header on this page AND copy it onto the continuation
+    // table on the next page, or the next page's rows lose their column
+    // labels entirely.
+    function tableHeaderRow(table) {
+        const first = table.firstElementChild;
+        return first && first.querySelector("th") ? first : null;
+    }
+
     function moveOverflowForward(page) {
         let guard = 0;
         while (isOverflowing(page) && page.children.length > 0 && guard < 500) {
@@ -136,6 +146,34 @@
                 continue;
             }
 
+            // Same idea as the list case above, but for a <table>: keep
+            // the header row + at least one data row on THIS page, move
+            // only the trailing data rows to a continuation table on the
+            // next page (with its own copy of the header so the moved
+            // rows still make sense on their own).
+            if (lastChild.tagName === "TABLE") {
+                const headerRow = tableHeaderRow(lastChild);
+                const minRows = headerRow ? 2 : 1;
+                if (lastChild.children.length > minRows) {
+                    let nextTable = nextPage.firstElementChild;
+                    if (!nextTable || nextTable.tagName !== "TABLE" || !isSplitContinuation(nextTable)) {
+                        nextTable = document.createElement("table");
+                        nextTable.dataset.splitContinuation = "true";
+                        if (headerRow) nextTable.appendChild(headerRow.cloneNode(true));
+                        nextPage.insertBefore(nextTable, nextPage.firstChild);
+                    }
+                    while (isOverflowing(page) && lastChild.children.length > minRows) {
+                        const dataAnchor = headerRow ? nextTable.children[1] || null : nextTable.firstChild;
+                        nextTable.insertBefore(lastChild.lastElementChild, dataAnchor);
+                    }
+                    if (lastChild.children.length <= minRows && headerRow && lastChild.children.length === 1) {
+                        lastChild.remove(); // only the header was left with no data rows — nothing left to show
+                    }
+                    guard += 1;
+                    continue;
+                }
+            }
+
             // A list reduced to its last single item (or one that never
             // needed splitting) still shouldn't fork into a second,
             // separately-numbered list if the next page already starts
@@ -146,6 +184,22 @@
                     const firstStart = parseInt(lastChild.getAttribute("start") || "1", 10);
                     while (lastChild.lastElementChild) target.insertBefore(lastChild.lastElementChild, target.firstChild);
                     if (lastChild.tagName === "OL" || target.tagName === "OL") target.setAttribute("start", String(firstStart));
+                    lastChild.remove();
+                    guard += 1;
+                    continue;
+                }
+            }
+
+            // Same merge idea for a table left with just its header +
+            // one data row: fold it into an existing continuation table
+            // on the next page rather than starting a second one.
+            if (lastChild.tagName === "TABLE") {
+                const target = nextPage.firstElementChild;
+                if (target && target.tagName === "TABLE" && isSplitContinuation(target)) {
+                    const headerRow = tableHeaderRow(lastChild);
+                    const rowsToMove = Array.from(lastChild.children).filter((r) => r !== headerRow);
+                    const dataAnchor = tableHeaderRow(target) ? target.children[1] || null : target.firstChild;
+                    for (let k = rowsToMove.length - 1; k >= 0; k--) target.insertBefore(rowsToMove[k], dataAnchor);
                     lastChild.remove();
                     guard += 1;
                     continue;
@@ -175,7 +229,7 @@
             // whole-element chunks — otherwise a list that was split
             // stays needlessly split even once earlier edits free up
             // room for more of it here.
-            if (isSplitContinuation(candidate) && target && target.tagName === candidate.tagName) {
+            if (isSplitContinuation(candidate) && isSplittableList(candidate) && target && target.tagName === candidate.tagName) {
                 let movedAny = false;
                 while (candidate.firstElementChild) {
                     target.appendChild(candidate.firstElementChild);
@@ -191,6 +245,33 @@
                     candidate.setAttribute("start", String(targetStart + target.children.length));
                 }
                 if (!candidate.children.length) candidate.remove();
+                if (movedAny || !candidate.isConnected) { guard += 1; continue; }
+                break;
+            }
+
+            // Same idea for a split-continuation table: give back its
+            // trailing... actually leading (post-header) data rows one
+            // at a time to a matching table at the end of this page,
+            // skipping the candidate's own copied header row (that
+            // header isn't real content to pull back — it only exists
+            // so the continuation table on its own page has labels).
+            if (isSplitContinuation(candidate) && candidate.tagName === "TABLE" && target && target.tagName === "TABLE") {
+                const candidateHeader = tableHeaderRow(candidate);
+                let movedAny = false;
+                while (true) {
+                    const nextRow = Array.from(candidate.children).find((r) => r !== candidateHeader);
+                    if (!nextRow) break;
+                    target.appendChild(nextRow);
+                    movedAny = true;
+                    if (isOverflowing(page)) {
+                        const dataAnchor = candidateHeader ? candidate.children[1] || null : candidate.firstChild;
+                        candidate.insertBefore(target.lastElementChild, dataAnchor); // doesn't fit — put back
+                        movedAny = false;
+                        break;
+                    }
+                }
+                const remainingData = candidateHeader ? candidate.children.length - 1 : candidate.children.length;
+                if (remainingData <= 0) candidate.remove();
                 if (movedAny || !candidate.isConnected) { guard += 1; continue; }
                 break;
             }
