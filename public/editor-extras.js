@@ -41,6 +41,27 @@
         document.querySelectorAll(".md-raw-edit").forEach(renderRawEditBoxSafely);
     }
 
+    // Drops stray leading/trailing <br> inside a paragraph/list item —
+    // these add blank vertical space without any text before/after
+    // them — and collapses any run of consecutive <br> in the middle
+    // down to one. This is the "extra gap inside one paragraph" case;
+    // blockHasRealContent above only catches a paragraph that's blank
+    // as a WHOLE, not extra spacing living inside an otherwise-real one.
+    function normalizeParagraphBreaks(page) {
+        page.querySelectorAll("p, li").forEach((el) => {
+            while (el.firstChild && el.firstChild.nodeName === "BR") el.removeChild(el.firstChild);
+            while (el.lastChild && el.lastChild.nodeName === "BR") el.removeChild(el.lastChild);
+            Array.from(el.querySelectorAll("br")).forEach((br) => {
+                let next = br.nextSibling;
+                while (next && next.nodeName === "BR") {
+                    const toRemove = next;
+                    next = next.nextSibling;
+                    toRemove.remove();
+                }
+            });
+        });
+    }
+
     window.removeEmptyLines = function () {
         closeAllOpenMdRawEdits();
         const pages = window.WPSEditor.allPages();
@@ -57,6 +78,7 @@
             page.querySelectorAll("ul, ol").forEach((el) => {
                 if (!el.querySelector("li")) el.remove();
             });
+            normalizeParagraphBreaks(page);
             // Also re-normalize every table/list/heading on the page —
             // this is the same cleanup that used to require double-
             // tapping each block and tapping away, now forced for all
@@ -118,10 +140,10 @@
     }
 
     // Same invisible-character definition as the paste-time cleaner in
-    // editor-core.js (zero-width space/joiner, BOM, NBSP) — Gemini and
-    // similar apps use these for spacing instead of a truly empty
-    // line, so a plain .trim() alone won't catch them as blank.
-    const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u00A0]/g;
+    // editor-core.js — various zero-width/thin-space/BOM characters
+    // that AI apps use for spacing instead of a truly empty line, so a
+    // plain .trim() alone won't catch them as blank.
+    const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u00A0\u2060\u180E\u2000-\u200A\u3000]/g;
     function isBlankMd(str) {
         return str.replace(INVISIBLE_CHARS, "").trim() === "";
     }

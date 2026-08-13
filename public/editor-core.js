@@ -155,7 +155,7 @@
     // "blank" line like this slips past the empty-line check and turns
     // into a visible empty paragraph. Strip them before testing/using
     // any line for blankness.
-    const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u00A0]/g;
+    const INVISIBLE_CHARS = /[\u200B\u200C\u200D\uFEFF\u00A0\u2060\u180E\u2000-\u200A\u3000]/g;
     function stripInvisible(str) {
         return str.replace(INVISIBLE_CHARS, "");
     }
