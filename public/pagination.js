@@ -206,6 +206,45 @@
                 }
             }
 
+            // A paste (especially one dropped mid-page, e.g. into a
+            // blank line made with Enter) can end up wrapping many new
+            // paragraphs inside one generic container instead of
+            // leaving them as direct siblings of the page. Without this,
+            // that whole container — everything pasted, all at once —
+            // would move to the next page the moment ANY of it
+            // overflowed, even with plenty of visible room left here.
+            // Split it exactly like a list: move its trailing children
+            // out one at a time until this page actually fits.
+            if (lastChild.tagName !== "P" && !/^H[1-6]$/.test(lastChild.tagName) && lastChild.children.length > 1) {
+                let nextContainer = nextPage.firstElementChild;
+                if (!nextContainer || nextContainer.tagName !== lastChild.tagName || !isSplitContinuation(nextContainer)) {
+                    nextContainer = document.createElement(lastChild.tagName);
+                    nextContainer.dataset.splitContinuation = "true";
+                    nextPage.insertBefore(nextContainer, nextPage.firstChild);
+                }
+                while (isOverflowing(page) && lastChild.children.length > 1) {
+                    nextContainer.insertBefore(lastChild.lastElementChild, nextContainer.firstChild);
+                }
+                if (!lastChild.children.length) lastChild.remove();
+                guard += 1;
+                continue;
+            }
+            if (lastChild.children.length <= 1) {
+                const target = nextPage.firstElementChild;
+                if (
+                    target &&
+                    target.tagName === lastChild.tagName &&
+                    isSplitContinuation(target) &&
+                    lastChild.tagName !== "P" &&
+                    !/^H[1-6]$/.test(lastChild.tagName)
+                ) {
+                    while (lastChild.lastElementChild) target.insertBefore(lastChild.lastElementChild, target.firstChild);
+                    lastChild.remove();
+                    guard += 1;
+                    continue;
+                }
+            }
+
             if (page.children.length <= 1) break; // nothing left that can move without fully emptying the page
             nextPage.insertBefore(lastChild, nextPage.firstChild);
             guard += 1;
@@ -272,6 +311,34 @@
                 }
                 const remainingData = candidateHeader ? candidate.children.length - 1 : candidate.children.length;
                 if (remainingData <= 0) candidate.remove();
+                if (movedAny || !candidate.isConnected) { guard += 1; continue; }
+                break;
+            }
+
+            // Same idea for a generic split-continuation container (see
+            // the matching case in moveOverflowForward): give its
+            // children back one at a time to a matching container at
+            // the end of this page.
+            if (
+                isSplitContinuation(candidate) &&
+                candidate.tagName !== "P" &&
+                !/^H[1-6]$/.test(candidate.tagName) &&
+                !isSplittableList(candidate) &&
+                candidate.tagName !== "TABLE" &&
+                target &&
+                target.tagName === candidate.tagName
+            ) {
+                let movedAny = false;
+                while (candidate.firstElementChild) {
+                    target.appendChild(candidate.firstElementChild);
+                    movedAny = true;
+                    if (isOverflowing(page)) {
+                        candidate.insertBefore(target.lastElementChild, candidate.firstChild); // doesn't fit — put back
+                        movedAny = false;
+                        break;
+                    }
+                }
+                if (!candidate.children.length) candidate.remove();
                 if (movedAny || !candidate.isConnected) { guard += 1; continue; }
                 break;
             }
