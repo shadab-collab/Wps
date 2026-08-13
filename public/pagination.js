@@ -89,11 +89,70 @@
         return nextWrapper.querySelector(".page");
     }
 
+    // A list that's the ONLY thing overflowing a page shouldn't have to
+    // move in its entirety — moving its trailing items onto the next
+    // page (instead of the whole element) keeps this page filled and
+    // avoids the classic "half the page is blank" look for anything
+    // longer than one page's worth of items.
+    function isSplittableList(el) {
+        return !!el && (el.tagName === "UL" || el.tagName === "OL");
+    }
+
+    // Only ever merge into a list on the next page that WE created as
+    // the continuation of this same split — never into some unrelated
+    // list that just happens to start the next page, which would wrongly
+    // splice two separate lists (and their numbering) into one.
+    function isSplitContinuation(el) {
+        return !!el && el.dataset && el.dataset.splitContinuation === "true";
+    }
+
     function moveOverflowForward(page) {
         let guard = 0;
-        while (isOverflowing(page) && page.children.length > 1 && guard < 500) {
+        while (isOverflowing(page) && page.children.length > 0 && guard < 500) {
             const lastChild = page.lastElementChild;
+            if (!lastChild) break;
             const nextPage = getOrCreateNextPage(page);
+
+            if (isSplittableList(lastChild) && lastChild.children.length > 1) {
+                let nextList = nextPage.firstElementChild;
+                if (!nextList || nextList.tagName !== lastChild.tagName || !isSplitContinuation(nextList)) {
+                    nextList = document.createElement(lastChild.tagName);
+                    nextList.dataset.splitContinuation = "true";
+                    nextPage.insertBefore(nextList, nextPage.firstChild);
+                }
+                // Move items from the end of this list to the front of
+                // the next page's list, one at a time, stopping the
+                // moment this page fits — far better than shoving the
+                // WHOLE list over and leaving this page half-blank.
+                while (isOverflowing(page) && lastChild.children.length > 1) {
+                    nextList.insertBefore(lastChild.lastElementChild, nextList.firstChild);
+                }
+                if (lastChild.tagName === "OL" || nextList.tagName === "OL") {
+                    const firstStart = parseInt(lastChild.getAttribute("start") || "1", 10);
+                    nextList.setAttribute("start", String(firstStart + lastChild.children.length));
+                }
+                if (!lastChild.children.length) lastChild.remove();
+                guard += 1;
+                continue;
+            }
+
+            // A list reduced to its last single item (or one that never
+            // needed splitting) still shouldn't fork into a second,
+            // separately-numbered list if the next page already starts
+            // with a matching one — merge it in instead.
+            if (isSplittableList(lastChild)) {
+                const target = nextPage.firstElementChild;
+                if (target && target.tagName === lastChild.tagName && isSplitContinuation(target)) {
+                    const firstStart = parseInt(lastChild.getAttribute("start") || "1", 10);
+                    while (lastChild.lastElementChild) target.insertBefore(lastChild.lastElementChild, target.firstChild);
+                    if (lastChild.tagName === "OL" || target.tagName === "OL") target.setAttribute("start", String(firstStart));
+                    lastChild.remove();
+                    guard += 1;
+                    continue;
+                }
+            }
+
+            if (page.children.length <= 1) break; // nothing left that can move without fully emptying the page
             nextPage.insertBefore(lastChild, nextPage.firstChild);
             guard += 1;
         }
@@ -108,6 +167,34 @@
 
         while (nextPage && nextPage.firstElementChild && guard < 500) {
             const candidate = nextPage.firstElementChild;
+            const target = page.lastElementChild;
+
+            // A split-continuation list at the top of the next page can
+            // give back its items one at a time to a matching list at
+            // the end of this page, instead of only ever moving in
+            // whole-element chunks — otherwise a list that was split
+            // stays needlessly split even once earlier edits free up
+            // room for more of it here.
+            if (isSplitContinuation(candidate) && target && target.tagName === candidate.tagName) {
+                let movedAny = false;
+                while (candidate.firstElementChild) {
+                    target.appendChild(candidate.firstElementChild);
+                    movedAny = true;
+                    if (isOverflowing(page)) {
+                        candidate.insertBefore(target.lastElementChild, candidate.firstChild); // doesn't fit — put back
+                        movedAny = false;
+                        break;
+                    }
+                }
+                if (target.tagName === "OL" && candidate.children.length) {
+                    const targetStart = parseInt(target.getAttribute("start") || "1", 10);
+                    candidate.setAttribute("start", String(targetStart + target.children.length));
+                }
+                if (!candidate.children.length) candidate.remove();
+                if (movedAny || !candidate.isConnected) { guard += 1; continue; }
+                break;
+            }
+
             page.appendChild(candidate);
             if (isOverflowing(page)) {
                 nextPage.insertBefore(candidate, nextPage.firstChild); // doesn't fit — put back

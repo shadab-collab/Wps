@@ -290,14 +290,24 @@
                 // followed by unrelated text (e.g. "1. सवाल" then
                 // "उत्तर: ..." on the next line, which isn't a bullet)
                 // rather than a real list. Rendering it as its own
-                // one-item <ol>/<ol> would always show "1." no matter
+                // one-item <ol>/<ul> would always show "1." no matter
                 // what digit was in the source — each separate <ol>
                 // restarts its own numbering — so treat it as a plain
                 // paragraph instead, matching how it actually reads.
-                htmlParts.push("<p>" + listItems[0] + "</p>");
+                // Keep the original marker text ("1.", "-"...) visible
+                // in that paragraph — dropping it entirely would make
+                // the number disappear rather than just stop being a
+                // "real" list, which reads as data loss to the user.
+                htmlParts.push("<p>" + escapeHtml(listItems[0].marker) + " " + listItems[0].html + "</p>");
             } else {
                 htmlParts.push(
-                    "<" + listType + ">" + listItems.map((c) => "<li>" + c + "</li>").join("") + "</" + listType + ">"
+                    "<" +
+                        listType +
+                        ">" +
+                        listItems.map((it) => "<li>" + it.html + "</li>").join("") +
+                        "</" +
+                        listType +
+                        ">"
                 );
             }
             listType = null;
@@ -329,17 +339,18 @@
             // "- item"/"* item" is unordered; "1. item"/"1) item" is
             // numbered — collected separately so a run of numbered
             // lines round-trips back to a real <ol>, not bullets.
-            const ulMatch = trimmed.match(/^[-*]\s+(.*)$/);
-            const olMatch = !ulMatch && trimmed.match(/^\d+[.)]\s+(.*)$/);
+            const ulMatch = trimmed.match(/^([-*])\s+(.*)$/);
+            const olMatch = !ulMatch && trimmed.match(/^(\d+[.)])\s+(.*)$/);
             const bulletMatch = ulMatch || olMatch;
 
             if (bulletMatch) {
-                const content = bulletMatch[1];
+                const marker = bulletMatch[1];
+                const content = bulletMatch[2];
                 if (isBlank(content)) { i++; continue; } // bullet marker with no real text — drop it
                 const thisType = ulMatch ? "ul" : "ol";
                 if (listType && listType !== thisType) flushList();
                 listType = thisType;
-                listItems.push(inlineMarkdown(content));
+                listItems.push({ marker: marker, html: inlineMarkdown(content) });
                 i++;
                 continue;
             }
