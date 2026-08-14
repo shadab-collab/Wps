@@ -62,29 +62,40 @@
         });
     }
 
+    // Core cleanup for one page — pulled out of the button handler so
+    // paste can run the exact same normalization automatically, right
+    // after inserting content, instead of the user always having to
+    // press the button once to get the same tight (no stray blank
+    // line) result they'd get from pulling content back with backspace.
+    function cleanBlankLinesInPage(page) {
+        let removedCount = 0;
+        page.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6").forEach((el) => {
+            if (!blockHasRealContent(el)) {
+                el.remove();
+                removedCount++;
+            }
+        });
+        // A list left with no <li> after the above has nothing to
+        // show — drop the now-empty wrapper too.
+        page.querySelectorAll("ul, ol").forEach((el) => {
+            if (!el.querySelector("li")) el.remove();
+        });
+        normalizeParagraphBreaks(page);
+        // Also re-normalize every table/list/heading on the page —
+        // this is the same cleanup that used to require double-
+        // tapping each block and tapping away, now forced for all
+        // of them (even ones already marked "clean" earlier, so
+        // content pasted before this fix existed gets caught too).
+        if (window.WPSEditor.normalizeAllMdBlocksInPage) window.WPSEditor.normalizeAllMdBlocksInPage(page);
+        return removedCount;
+    }
+
     window.removeEmptyLines = function () {
         closeAllOpenMdRawEdits();
         const pages = window.WPSEditor.allPages();
         let removedCount = 0;
         pages.forEach((page) => {
-            page.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6").forEach((el) => {
-                if (!blockHasRealContent(el)) {
-                    el.remove();
-                    removedCount++;
-                }
-            });
-            // A list left with no <li> after the above has nothing to
-            // show — drop the now-empty wrapper too.
-            page.querySelectorAll("ul, ol").forEach((el) => {
-                if (!el.querySelector("li")) el.remove();
-            });
-            normalizeParagraphBreaks(page);
-            // Also re-normalize every table/list/heading on the page —
-            // this is the same cleanup that used to require double-
-            // tapping each block and tapping away, now forced for all
-            // of them (even ones already marked "clean" earlier, so
-            // content pasted before this fix existed gets caught too).
-            if (window.WPSEditor.normalizeAllMdBlocksInPage) window.WPSEditor.normalizeAllMdBlocksInPage(page);
+            removedCount += cleanBlankLinesInPage(page);
         });
         window.WPSEditor.renumberPages();
         window.WPSEditor.repaginateAll();
@@ -529,7 +540,14 @@
         const sel = window.getSelection();
         if (sel.rangeCount > 0) {
             const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
-            if (page) window.WPSEditor.scheduleForPage(page);
+            if (page) {
+                // Same tight, no-stray-blank-line result the user
+                // used to only get by pulling content back with
+                // backspace — now applied automatically right after
+                // paste, not just from the manual cleanup button.
+                cleanBlankLinesInPage(page);
+                window.WPSEditor.scheduleForPage(page);
+            }
         }
     };
 
@@ -582,6 +600,7 @@
     Object.assign(window.WPSEditor, {
         attachMarkdownBlocksInPage: attachMarkdownBlocksInPage,
         normalizeAllMdBlocksInPage: normalizeAllMdBlocksInPage,
+        cleanBlankLinesInPage: cleanBlankLinesInPage,
         checkAutoBoldQuestionLine: window.checkAutoBoldQuestionLine,
         applyAutoBoldToAllQuestionLines: window.applyAutoBoldToAllQuestionLines
     });

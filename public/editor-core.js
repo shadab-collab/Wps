@@ -456,7 +456,13 @@
 
         document.execCommand("insertHTML", false, html);
         const page = closestPage(e.target);
-        if (page) window.WPSEditor.scheduleForPage(page);
+        if (page) {
+            // Same tight, no-stray-blank-line cleanup the "खाली पंक्ति
+            // हटाएँ" button does — applied automatically right after
+            // paste too, not only when the user presses that button.
+            if (window.WPSEditor.cleanBlankLinesInPage) window.WPSEditor.cleanBlankLinesInPage(page);
+            window.WPSEditor.scheduleForPage(page);
+        }
     }
 
     /* ==================================================
