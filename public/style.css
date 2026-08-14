@@ -533,6 +533,50 @@ Toolbar
 }
 
 /* ==========================================
+   Chapter Box — a visually distinct marker you
+   drop at the start of a chapter so it's easy to
+   spot while fast-scrolling through a long
+   document. Kept as plain editable text (no
+   special contenteditable=false widget) so tapping
+   in and correcting the number/name works exactly
+   like any other paragraph — only the look is
+   special.
+==========================================*/
+
+.chapter-box {
+    margin: 10px 0 16px;
+    padding: 14px 16px 12px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #1a2a6c 0%, #2a4494 55%, #16205a 100%);
+    color: #fff;
+    text-align: center;
+    box-shadow: 0 4px 14px rgba(26, 42, 108, 0.35);
+    border: 2px solid #f0c14b;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.chapter-box-crown {
+    font-size: 1.4em;
+    line-height: 1;
+    margin-bottom: 2px;
+}
+
+.chapter-box-number {
+    font-size: 0.8em;
+    letter-spacing: 1.5px;
+    color: #f0c14b;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.chapter-box-title {
+    font-size: 1.3em;
+    font-weight: 800;
+    line-height: 1.25;
+}
+
+/* ==========================================
    Floating Keyboard Toggle Button
 ==========================================*/
 

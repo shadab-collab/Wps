@@ -215,7 +215,15 @@
             // overflowed, even with plenty of visible room left here.
             // Split it exactly like a list: move its trailing children
             // out one at a time until this page actually fits.
-            if (lastChild.tagName !== "P" && !/^H[1-6]$/.test(lastChild.tagName) && lastChild.children.length > 1) {
+            // data-no-split (e.g. the chapter box) opts out — those
+            // divs are one atomic unit by design and must never be torn
+            // apart across a page boundary.
+            if (
+                lastChild.tagName !== "P" &&
+                !/^H[1-6]$/.test(lastChild.tagName) &&
+                lastChild.dataset.noSplit !== "true" &&
+                lastChild.children.length > 1
+            ) {
                 let nextContainer = nextPage.firstElementChild;
                 if (!nextContainer || nextContainer.tagName !== lastChild.tagName || !isSplitContinuation(nextContainer)) {
                     nextContainer = document.createElement(lastChild.tagName);

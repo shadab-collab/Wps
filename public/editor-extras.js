@@ -90,6 +90,45 @@
         return removedCount;
     }
 
+    /* ==================================================
+       CHAPTER BOX
+       A visually distinct box (crown accent, gradient background) for
+       marking where a new chapter starts — easy to spot while fast-
+       scrolling a 50-60 page document. Stays as plain editable text
+       (tap in and correct the number/name like any paragraph); only
+       styling is special. data-no-split="true" tells pagination.js's
+       generic container-splitting to treat this as one atomic unit
+       instead of reaching in and splitting its crown/number/title divs
+       across two pages if it ever lands at a page boundary.
+    ================================================== */
+    function escapeForChapterBox(str) {
+        return String(str || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    window.insertChapterBox = function () {
+        const num = prompt("अध्याय संख्या (जैसे 1, 2, 3...):", "");
+        if (num === null) return;
+        const name = prompt("अध्याय का नाम:", "");
+        if (name === null) return;
+
+        const html =
+            '<div class="chapter-box" data-no-split="true">' +
+            '<div class="chapter-box-crown">👑</div>' +
+            '<div class="chapter-box-number">अध्याय ' + escapeForChapterBox(num) + "</div>" +
+            '<div class="chapter-box-title">' + (escapeForChapterBox(name) || "अध्याय का नाम") + "</div>" +
+            "</div><p><br></p>";
+
+        document.execCommand("insertHTML", false, html);
+        const sel = window.getSelection();
+        if (sel.rangeCount > 0) {
+            const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
+            if (page) window.WPSEditor.scheduleForPage(page);
+        }
+    };
+
     window.removeEmptyLines = function () {
         closeAllOpenMdRawEdits();
         const pages = window.WPSEditor.allPages();

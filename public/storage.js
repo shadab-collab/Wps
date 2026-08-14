@@ -36,6 +36,27 @@
     }
 
     /* ------------------------------------------------
+       LAST-VIEWED PAGE (per saved document, remembered locally on
+       this device/browser). zoom-keyboard.js reports the page nearest
+       the top of the viewport whenever a pan/pinch gesture settles;
+       loadDocument() below jumps straight there instead of always
+       landing on page 1 of a 50-60 page document.
+    ------------------------------------------------ */
+    function lastPageKey(id) {
+        return "wps-last-page:" + id;
+    }
+
+    window.WPSEditor = window.WPSEditor || {};
+    window.WPSEditor.rememberLastPage = function (pageNumber) {
+        if (!currentDocId || !pageNumber) return;
+        try {
+            localStorage.setItem(lastPageKey(currentDocId), String(pageNumber));
+        } catch (e) {
+            /* storage full/unavailable — not worth interrupting anything for */
+        }
+    };
+
+    /* ------------------------------------------------
        API CALLS
     ------------------------------------------------ */
     async function apiListDocuments() {
@@ -113,7 +134,22 @@
                 window.WPSEditor.renderMathInPage(page);
             });
             window.WPSEditor.renumberPages();
-            window.WPSEditor.repaginateAll();
+            window.WPSEditor.repaginateAll(() => {
+                // Jump back to wherever the user last left off reading/
+                // editing this document, instead of always landing on
+                // page 1 and making them re-scroll through everything —
+                // only meaningful once pagination has settled, so this
+                // runs as repaginateAll's completion callback.
+                let lastPage = null;
+                try {
+                    lastPage = localStorage.getItem(lastPageKey(currentDocId));
+                } catch (e) {
+                    /* storage unavailable — just open at page 1, same as before */
+                }
+                if (lastPage && window.WPSEditor.scrollToPageNumber) {
+                    window.WPSEditor.scrollToPageNumber(parseInt(lastPage, 10));
+                }
+            });
             setStatus("खुल गया ✓");
         } catch (e) {
             setStatus("खोलने में समस्या हुई");

@@ -202,6 +202,7 @@
             velY *= FRICTION;
             if (Math.abs(velX) < STOP_THRESHOLD && Math.abs(velY) < STOP_THRESHOLD) {
                 momentumFrame = null;
+                reportVisiblePage();
                 return;
             }
             panX += velX;
@@ -496,6 +497,7 @@
         if (pinchActive) {
             if (e.touches.length < 2) {
                 pinchActive = false;
+                reportVisiblePage(); // zoom level changed — the "nearest" page may have too
                 if (e.touches.length === 1) {
                     // one finger still down after a pinch — restart pan
                     // tracking from here so the next move doesn't jump
@@ -546,6 +548,8 @@
 
         if (isDragging && allowCustomPan && (Math.abs(velX) > STOP_VELOCITY_MIN || Math.abs(velY) > STOP_VELOCITY_MIN)) {
             startMomentum();
+        } else {
+            reportVisiblePage(); // no momentum kicking off — settle now instead of never
         }
         isDragging = false;
         holdFired = false;
@@ -573,4 +577,38 @@
     }
 
     applyTransform();
+
+    /* ------------------------------------------------
+       REMEMBER LAST-VIEWED PAGE
+       Pan uses transform, not native scrollTop, so "scroll position"
+       has to be tracked ourselves — whenever a pan/pinch gesture
+       settles, note which page-wrapper is nearest the top of the
+       viewport and hand it to storage.js to persist. On reopening a
+       saved document, storage.js calls scrollToPageNumber() below to
+       jump straight back there instead of always starting at page 1.
+    ------------------------------------------------ */
+    function reportVisiblePage() {
+        if (!window.WPSEditor || !window.WPSEditor.rememberLastPage) return;
+        const wrappers = document.querySelectorAll(".page-wrapper");
+        if (!wrappers.length) return;
+        const viewportTop = viewport.getBoundingClientRect().top;
+        let best = null, bestDist = Infinity;
+        wrappers.forEach((w) => {
+            const dist = Math.abs(w.getBoundingClientRect().top - viewportTop);
+            if (dist < bestDist) { bestDist = dist; best = w; }
+        });
+        const match = best && best.id.match(/page-wrapper-(\d+)/);
+        if (match) window.WPSEditor.rememberLastPage(parseInt(match[1], 10));
+    }
+
+    window.WPSEditor = window.WPSEditor || {};
+    window.WPSEditor.scrollToPageNumber = function (n) {
+        const wrapper = document.getElementById("page-wrapper-" + n);
+        if (!wrapper) return;
+        const viewportRect = viewport.getBoundingClientRect();
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const TOP_MARGIN = 24; // small breathing room instead of jamming it against the very edge
+        panY -= wrapperRect.top - viewportRect.top - TOP_MARGIN;
+        applyTransform();
+    };
 })();
