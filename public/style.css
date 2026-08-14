@@ -533,6 +533,49 @@ Toolbar
 }
 
 /* ==========================================
+   Urdu Page (per-page toggle)
+   Setting direction:rtl on the multi-column .page is what actually
+   reverses the visual column order in-browser — column 1 (fills
+   first) ends up on the right, so what looks like "the third column"
+   in the normal Hindi layout becomes the natural starting column for
+   Urdu, with zero JS needed to physically reorder anything. A newly
+   created page from pagination overflow (pagination.js) always starts
+   as a plain "page" — never inherits this class — so content that
+   spills past a page you toggled here lands back in normal Hindi
+   layout until you toggle THAT page too, exactly as asked for.
+==========================================*/
+
+.page.urdu-page {
+    direction: rtl;
+    text-align: right;
+    font-family: "Jameel Noori Nastaliq", "Noto Nastaliq Urdu", "Noto Naskh Arabic", serif;
+    line-height: 2.3; /* Nastaliq's diagonal stacking needs real room between lines — a Hindi-tight line-height clips it */
+}
+
+.page.urdu-page h1,
+.page.urdu-page h2,
+.page.urdu-page h3,
+.page.urdu-page h4,
+.page.urdu-page h5,
+.page.urdu-page h6,
+.page.urdu-page p,
+.page.urdu-page li {
+    line-height: 2.3;
+}
+
+.page.urdu-page ul,
+.page.urdu-page ol {
+    margin: 0 20px 8px 0; /* mirror the LTR list indent (was on the left) to the right, to match RTL reading */
+}
+
+.page.urdu-page blockquote {
+    border-left: none;
+    border-right: 4px solid #1a73e8;
+    padding-left: 0;
+    padding-right: 12px;
+}
+
+/* ==========================================
    Chapter Box — a visually distinct marker you
    drop at the start of a chapter so it's easy to
    spot while fast-scrolling through a long

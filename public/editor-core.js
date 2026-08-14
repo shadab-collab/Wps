@@ -902,10 +902,13 @@
         window.WPSEditor.scheduleRepagination();
     }
 
-    window.insertImage = function () {
-        const page = activePageForInsert || document.querySelector(".page");
-        if (!page) return;
+    function getActivePage() {
+        return activePageForInsert || document.querySelector(".page");
+    }
 
+    window.insertImage = function () {
+        const page = getActivePage();
+        if (!page) return;
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/*";
@@ -938,6 +941,7 @@
         renderMathInPage: renderMathInPage,
         handlePaste: handlePaste,
         rememberActivePage: rememberActivePage,
+        getActivePage: getActivePage,
         cleanPasteToParagraphs: cleanPasteToParagraphs,
         sanitizePastedHtml: sanitizePastedHtml,
         initCore: initCore

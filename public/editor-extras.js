@@ -129,6 +129,23 @@
         }
     };
 
+    /* ==================================================
+       URDU PAGE TOGGLE
+       Flips the current page (wherever the cursor/last selection was)
+       into RTL, Nastaliq-styled layout, or back to normal — see the
+       .urdu-page CSS rules for how the column-order flip and font
+       actually work. Deliberately per-page, not global: a page created
+       by pagination overflow always starts plain (see pagination.js's
+       createPageWrapper), so content spilling off a Urdu page lands
+       back in normal layout until toggled here too.
+    ================================================== */
+    window.toggleUrduPage = function () {
+        const page = window.WPSEditor.getActivePage ? window.WPSEditor.getActivePage() : document.querySelector(".page");
+        if (!page) return;
+        page.classList.toggle("urdu-page");
+        window.WPSEditor.scheduleForPage(page);
+    };
+
     window.removeEmptyLines = function () {
         closeAllOpenMdRawEdits();
         const pages = window.WPSEditor.allPages();

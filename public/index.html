@@ -14,6 +14,18 @@
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/mhchem.min.js"></script>
 
+    <!-- Urdu Nastaliq-style font for pages toggled to Urdu layout.
+         Jameel Noori Nastaliq itself isn't available on any public
+         font CDN (it's freeware, not openly licensed for redistribution
+         like this) — Noto Nastaliq Urdu is Google's official
+         equivalent, same Nastaliq calligraphic style. If a real Jameel
+         Noori Nastaliq font file is ever added via @font-face in
+         style.css, it takes priority automatically — no other change
+         needed (see the font-family order on .urdu-page in style.css). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400..700&display=swap">
+
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -41,6 +53,7 @@
         <button class="btn" onclick="pasteFromClipboard()">📋 Paste</button>
         <button class="btn" onclick="removeEmptyLines()" title="खाली पंक्तियाँ हटाएँ">🧹 खाली पंक्ति हटाएँ</button>
         <button class="btn" onclick="insertChapterBox()" title="अध्याय बॉक्स डालें">👑 अध्याय बॉक्स</button>
+        <button class="btn" onclick="toggleUrduPage()" title="इस पेज को उर्दू (RTL) सजावट में बदलें/वापस लाएँ">🕌 اردو صفحہ</button>
     </div>
 
     <div class="toolbar-group">
