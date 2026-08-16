@@ -163,6 +163,17 @@
         return stripInvisible(str).trim() === "";
     }
 
+    // A line that's just a bare "[" or "]" with nothing else is almost
+    // always a leftover display-math delimiter — the source meant LaTeX
+    // "\[ ... \]" but the backslashes were stripped somewhere along the
+    // way (common with plain-text copies from AI chats), leaving these
+    // orphaned brackets sitting on their own line around the formula.
+    // Treated as blank so they don't show up as a stray floating
+    // "[" / "]" line above/below the (now correctly rendering) formula.
+    function isStrayMathBracketLine(str) {
+        return stripInvisible(str).trim() === "[" || stripInvisible(str).trim() === "]";
+    }
+
     function inlineMarkdown(text) {
         let out = escapeHtml(text);
         out = out.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
@@ -321,7 +332,7 @@
             // Devanagari text can legitimately rely on zero-width
             // joiner/non-joiner for correct conjunct rendering, so we
             // must not strip those from real (non-blank) lines.
-            if (isBlank(lines[i])) { i++; continue; } // drop blank lines entirely (incl. invisible-char-only lines)
+            if (isBlank(lines[i]) || isStrayMathBracketLine(lines[i])) { i++; continue; } // drop blank lines (incl. invisible-char-only) and orphaned "\[...\]" delimiter brackets
             const trimmed = lines[i].trim();
 
             if (isTableRow(trimmed)) {
@@ -494,7 +505,14 @@
             window.katex.render(enlarged, target, {
                 throwOnError: false,
                 displayMode: displayMode,
-                macros: { "\\ce": "\\ce" }
+                macros: {
+                    "\\ce": "\\ce",
+                    // AI chat exports often write "\mum" for micrometre
+                    // (meaning \mu m, μm) — that's not a real KaTeX/LaTeX
+                    // command on its own, so without this it shows as a
+                    // red "undefined control sequence" error instead of μm.
+                    "\\mum": "\\mu m"
+                }
             });
         } catch (e) {
             target.textContent = source;
@@ -642,6 +660,78 @@
         return { sup: exp, restAfter: str.slice(m[0].length) };
     }
 
+    // Wraps every bare (not already inside \text{...}) run of
+    // Devanagari characters in the given string with \text{...}. Used
+    // only on a string we already know is a complete LaTeX command's
+    // arguments (see autoWrapDevanagariInLatexRuns below), where any
+    // Devanagari present MUST be escaped into text mode or KaTeX has no
+    // glyphs for it at all.
+    function wrapBareDevanagari(str) {
+        const kept = [];
+        let out = str.replace(/\\text\{[^}]*\}/g, (m) => {
+            kept.push(m);
+            return "\u0003" + (kept.length - 1) + "\u0004";
+        });
+        out = out.replace(/[\u0900-\u097F]+(?:[ \u0900-\u097F]*[\u0900-\u097F])?/g, (m) => "\\text{" + m + "}");
+        out = out.replace(/\u0003(\d+)\u0004/g, (m, idx) => kept[Number(idx)]);
+        return out;
+    }
+
+    // AI chat exports often splice a Hindi word directly inside a LaTeX
+    // command's braces with no \text{} at all — e.g.
+    // "\boxed{चाल=\dfrac{दूरी}{समय}}". KaTeX has no Devanagari glyphs in
+    // math mode, so those need \text{} — but naively splitting the
+    // whole string into "Hindi" vs "math" runs (as splitBySafety below
+    // does for ordinary inline prose) tears \boxed{}/\dfrac{}{} apart at
+    // every Devanagari boundary and leaves an unbalanced, unrenderable
+    // fragment on each side. This scans for a complete command run
+    // instead — the command name plus ALL of its immediately-following
+    // {...}/[...] argument groups, balanced across any nesting — and
+    // only wraps the Devanagari found INSIDE that run, leaving the
+    // command structure itself intact.
+    function autoWrapDevanagariInLatexRuns(text) {
+        const CONTINUE_CHARS = /[A-Za-z0-9\^_+\-=*/().,!]/;
+        let result = "";
+        let i = 0;
+        const n = text.length;
+
+        while (i < n) {
+            const ch = text[i];
+            const startsCommand = ch === "\\" && /[A-Za-z]/.test(text[i + 1] || "");
+
+            if (startsCommand) {
+                let j = i;
+                let depth = 0;
+                let runEnd = i;
+                let sawBrace = false;
+
+                while (j < n) {
+                    const c = text[j];
+                    if (c === "{" || c === "[") { depth++; sawBrace = true; j++; runEnd = j; continue; }
+                    if (c === "}" || c === "]") { depth = Math.max(0, depth - 1); j++; runEnd = j; continue; }
+                    if (depth > 0) { j++; runEnd = j; continue; } // inside braces: anything goes, incl. Devanagari
+                    if (c === "\\" && /[A-Za-z]/.test(text[j + 1] || "")) {
+                        j++;
+                        while (j < n && /[A-Za-z]/.test(text[j])) j++;
+                        runEnd = j;
+                        continue;
+                    }
+                    if (CONTINUE_CHARS.test(c)) { j++; runEnd = j; continue; }
+                    break;
+                }
+
+                const run = text.slice(i, runEnd);
+                result += sawBrace && /[\u0900-\u097F]/.test(run) ? wrapBareDevanagari(run) : run;
+                i = runEnd;
+                continue;
+            }
+
+            result += ch;
+            i++;
+        }
+        return result;
+    }
+
     // Renders "naked" LaTeX (no $...$ wrapper, e.g. copied from an AI
     // chat) sitting inline inside otherwise-Hindi paragraphs. \text{}
     // arguments are pulled out as plain text instead of being fed to
@@ -661,6 +751,7 @@
 
         targets.forEach((textNode) => {
             let text = textNode.nodeValue;
+            text = autoWrapDevanagariInLatexRuns(text);
 
             // \xrightarrow{ऊष्मा}/\xleftarrow{...} reaction-condition labels
             // often contain Hindi, which KaTeX's math font can't render
@@ -902,10 +993,13 @@
         window.WPSEditor.scheduleRepagination();
     }
 
-    window.insertImage = function () {
-        const page = activePageForInsert || document.querySelector(".page");
-        if (!page) return;
+    function getActivePage() {
+        return activePageForInsert || document.querySelector(".page");
+    }
 
+    window.insertImage = function () {
+        const page = getActivePage();
+        if (!page) return;
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/*";
@@ -938,6 +1032,7 @@
         renderMathInPage: renderMathInPage,
         handlePaste: handlePaste,
         rememberActivePage: rememberActivePage,
+        getActivePage: getActivePage,
         cleanPasteToParagraphs: cleanPasteToParagraphs,
         sanitizePastedHtml: sanitizePastedHtml,
         initCore: initCore
