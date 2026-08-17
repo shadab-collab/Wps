@@ -113,4 +113,48 @@
             alert("समस्या हुई:\n" + errors.join("\n"));
         }
     };
+
+    /* ==================================================
+       REVERSE SELECTED PAGES (Urdu flip-book ordering)
+       Swaps CONTENT (not position) among the selected pages, back to
+       front — page 51's content becomes what page 70 had, 52 becomes
+       69, and so on. Deliberately swaps only innerHTML + the page's own
+       class (e.g. urdu-page) and leaves every .page-wrapper exactly
+       where it already was in the DOM: margin (odd/even gutter side)
+       and the printed page-number label are both driven purely by
+       *position* in style.css / renumberPages(), so they keep working
+       correctly for whatever content now sits at that position — no
+       separate margin fix-up needed.
+    ================================================== */
+    window.reverseSelectedPages = function () {
+        if (!selectMode || !selectedWrappers.size) {
+            alert("पहले 'Select Pages' चालू करके वे पेज चुनें जिनका क्रम पलटना है (कम से कम 2)।");
+            return;
+        }
+        const ordered = pageWrappers().filter((w) => selectedWrappers.has(w));
+        if (ordered.length < 2) {
+            alert("कम से कम 2 पेज चुनें जिनका क्रम पलटना है।");
+            return;
+        }
+        if (!confirm(ordered.length + " चुने हुए पेजों का क्रम पलटा जाएगा (पहला ↔ आख़िरी, इत्यादि)। आगे बढ़ें?")) return;
+
+        const pages = ordered.map((w) => w.querySelector(".page")).filter(Boolean);
+        const snapshot = pages.map((p) => ({ html: p.innerHTML, className: p.className }));
+        const reversedSnapshot = snapshot.slice().reverse();
+
+        pages.forEach((p, i) => {
+            p.innerHTML = reversedSnapshot[i].html;
+            p.className = reversedSnapshot[i].className;
+        });
+
+        // Re-wire what just got swapped in — formulas, markdown-block
+        // double-tap-to-edit, etc. (Page-level listeners like
+        // click/paste/focus stay attached fine on their own; only the
+        // *content* inside changed, not the .page node itself.)
+        pages.forEach((p) => window.WPSEditor.renderMathInPage(p));
+        window.WPSEditor.renumberPages();
+        window.WPSEditor.repaginateAll();
+
+        togglePageSelectMode(); // done — exit select mode, same as a completed export
+    };
 })();
