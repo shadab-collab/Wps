@@ -630,7 +630,12 @@
     // only of these, sitting inside otherwise-Hindi text, is treated
     // as a math island IF it also contains a backslash command or a
     // ^/_ (so plain numbers/English words aren't wrongly rendered).
-    const LATEX_SAFE_CHAR_RE = /[\\{}A-Za-z0-9+\-=_^().,\/\[\]\s*<>|:;'"!%~\u0001\u0002]/;
+    // \u0001\u0002 wrap a \text{} placeholder (see below); \u0005\u0006
+    // wrap a whole protected command-run placeholder (see
+    // extractDevanagariCommandRuns) — both must stay part of one
+    // continuous "safe" run instead of splitBySafety chopping them up
+    // at the control characters themselves.
+    const LATEX_SAFE_CHAR_RE = /[\\{}A-Za-z0-9+\-=_^().,\/\[\]\s*<>|:;'"!%~\u0001\u0002\u0005\u0006]/;
     function looksLikeMathRun(run) {
         return /\\|[\^_]/.test(run);
     }
@@ -686,10 +691,16 @@
     // every Devanagari boundary and leaves an unbalanced, unrenderable
     // fragment on each side. This scans for a complete command run
     // instead — the command name plus ALL of its immediately-following
-    // {...}/[...] argument groups, balanced across any nesting — and
-    // only wraps the Devanagari found INSIDE that run, leaving the
-    // command structure itself intact.
-    function autoWrapDevanagariInLatexRuns(text) {
+    // {...}/[...] argument groups, balanced across any nesting — wraps
+    // the Devanagari found INSIDE that run with \text{}, and then
+    // protects the WHOLE run behind a \u0005N\u0006 placeholder (pushed
+    // into outArray) so the ordinary \text{}-extraction step further
+    // down — built for a plain \text{...} annotation sitting on its
+    // own in normal prose — can't reach in and re-fragment the very
+    // structure just repaired here. The caller renders each protected
+    // run as a single, atomic KaTeX call (see appendMathSpan usage in
+    // renderNakedLatexInBlock).
+    function extractDevanagariCommandRuns(text, outArray) {
         const CONTINUE_CHARS = /[A-Za-z0-9\^_+\-=*/().,!]/;
         let result = "";
         let i = 0;
@@ -721,7 +732,12 @@
                 }
 
                 const run = text.slice(i, runEnd);
-                result += sawBrace && /[\u0900-\u097F]/.test(run) ? wrapBareDevanagari(run) : run;
+                if (sawBrace && /[\u0900-\u097F]/.test(run)) {
+                    outArray.push(wrapBareDevanagari(run));
+                    result += "\u0005" + (outArray.length - 1) + "\u0006";
+                } else {
+                    result += run;
+                }
                 i = runEnd;
                 continue;
             }
@@ -751,7 +767,8 @@
 
         targets.forEach((textNode) => {
             let text = textNode.nodeValue;
-            text = autoWrapDevanagariInLatexRuns(text);
+            const commandRuns = [];
+            text = extractDevanagariCommandRuns(text, commandRuns);
 
             // \xrightarrow{ऊष्मा}/\xleftarrow{...} reaction-condition labels
             // often contain Hindi, which KaTeX's math font can't render
@@ -777,6 +794,26 @@
 
             runs.forEach((run) => {
                 const piece = run.text;
+
+                // A fully-protected "\boxed{...}"-style run (see
+                // extractDevanagariCommandRuns) — render it as ONE
+                // atomic KaTeX call exactly as repaired, never letting
+                // the \text{}-splitting logic below touch it.
+                if (piece.indexOf("\u0005") !== -1) {
+                    changed = true;
+                    const re = /\u0005(\d+)\u0006/g;
+                    let lastIndex = 0, m;
+                    while ((m = re.exec(piece)) !== null) {
+                        const before = piece.slice(lastIndex, m.index);
+                        if (before) frag.appendChild(document.createTextNode(before));
+                        appendMathSpan(frag, commandRuns[Number(m[1])]);
+                        lastIndex = re.lastIndex;
+                    }
+                    const rest = piece.slice(lastIndex);
+                    if (rest) frag.appendChild(document.createTextNode(rest));
+                    return;
+                }
+
                 const hasPlaceholder = piece.indexOf("\u0001") !== -1;
 
                 if (run.safe && looksLikeMathRun(piece) && !hasPlaceholder) {
@@ -828,6 +865,51 @@
             if (changed) {
                 textNode.parentNode.replaceChild(frag, textNode);
             }
+        });
+    }
+
+    // "चाल = दूरी/समय" — a plain Hindi word equation with a bare "/"
+    // for division and NO LaTeX markup at all. This is different from
+    // (and runs independently of) the naked-LaTeX handling above: there
+    // no backslash/^_ ever appears, so the TreeWalker filter up there
+    // never even looks at this text. Renders it as a proper stacked
+    // fraction — "शब्द = शब्द/शब्द" style patterns only, so it doesn't
+    // fire on numeric fractions (3/4), dates (12/05/2024), or English
+    // text that happens to contain a slash.
+    const PLAIN_WORD_FRACTION_RE =
+        /([\u0900-\u097F]+(?:[ \u0900-\u097F]+)*)\s*=\s*([\u0900-\u097F]+(?:[ \u0900-\u097F]+)*)\s*\/\s*([\u0900-\u097F]+(?:[ \u0900-\u097F]+)*)/g;
+
+    function renderPlainWordFractionsInBlock(el) {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (node) {
+                if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+                PLAIN_WORD_FRACTION_RE.lastIndex = 0;
+                if (!PLAIN_WORD_FRACTION_RE.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+                if (node.parentElement && node.parentElement.closest(".latex-formula")) return NodeFilter.FILTER_REJECT;
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+
+        const targets = [];
+        let node;
+        while ((node = walker.nextNode())) targets.push(node);
+
+        targets.forEach((textNode) => {
+            const text = textNode.nodeValue;
+            PLAIN_WORD_FRACTION_RE.lastIndex = 0;
+            const frag = document.createDocumentFragment();
+            let lastIndex = 0, m, changed = false;
+            while ((m = PLAIN_WORD_FRACTION_RE.exec(text)) !== null) {
+                changed = true;
+                const before = text.slice(lastIndex, m.index);
+                if (before) frag.appendChild(document.createTextNode(before));
+                const lhs = m[1].trim(), num = m[2].trim(), den = m[3].trim();
+                appendMathSpan(frag, "\\text{" + lhs + "}=\\dfrac{\\text{" + num + "}}{\\text{" + den + "}}");
+                lastIndex = PLAIN_WORD_FRACTION_RE.lastIndex;
+            }
+            const rest = text.slice(lastIndex);
+            if (rest) frag.appendChild(document.createTextNode(rest));
+            if (changed) textNode.parentNode.replaceChild(frag, textNode);
         });
     }
 
@@ -883,6 +965,7 @@
             if (rawText && (rawText.indexOf("\\") !== -1 || /[\^_]/.test(rawText))) {
                 renderNakedLatexInBlock(el);
             }
+            renderPlainWordFractionsInBlock(el);
         });
     }
 
