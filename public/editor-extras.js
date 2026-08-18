@@ -607,57 +607,9 @@
         }
     };
 
-    /* ==================================================
-       AUTO-BOLD "प्रश्न" LINES
-       Any paragraph/list-item starting with "प्रश्न" bolds itself
-       automatically — live while typing that line, and also across
-       a whole pasted block. Pressing Enter starts a brand-new
-       paragraph element with no bold of its own, so the next line
-       is normal until it too starts with "प्रश्न".
-    ================================================== */
-    const QUESTION_WORD = "प्रश्न";
-
-    function applyAutoBoldToBlock(block) {
-        if (!block || !block.style) return;
-        const text = block.textContent.trimStart();
-        const shouldBeBold = text.indexOf(QUESTION_WORD) === 0;
-
-        if (shouldBeBold) {
-            if (block.dataset.autoBoldQ !== "1") {
-                block.style.fontWeight = "bold";
-                block.dataset.autoBoldQ = "1";
-            }
-        } else if (block.dataset.autoBoldQ === "1") {
-            block.style.fontWeight = "";
-            delete block.dataset.autoBoldQ;
-        }
-    }
-
-    // Live check of just the line the caret is currently in — cheap,
-    // called on every keystroke so bolding appears immediately as
-    // you type "प्रश्न" at the start of a line.
-    window.checkAutoBoldQuestionLine = function (page) {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        const node = sel.getRangeAt(0).startContainer;
-        if (!page.contains(node)) return;
-        let block = node.nodeType === 3 ? node.parentElement : node;
-        while (block && block.parentElement !== page) block = block.parentElement;
-        applyAutoBoldToBlock(block);
-    };
-
-    // Full-page sweep — catches pasted multi-paragraph content, where
-    // several "प्रश्न..." lines can land at once, not just the one
-    // the caret ends up in.
-    window.applyAutoBoldToAllQuestionLines = function (page) {
-        page.querySelectorAll("p, li").forEach(applyAutoBoldToBlock);
-    };
-
     Object.assign(window.WPSEditor, {
         attachMarkdownBlocksInPage: attachMarkdownBlocksInPage,
         normalizeAllMdBlocksInPage: normalizeAllMdBlocksInPage,
-        cleanBlankLinesInPage: cleanBlankLinesInPage,
-        checkAutoBoldQuestionLine: window.checkAutoBoldQuestionLine,
-        applyAutoBoldToAllQuestionLines: window.applyAutoBoldToAllQuestionLines
+        cleanBlankLinesInPage: cleanBlankLinesInPage
     });
 })();

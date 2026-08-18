@@ -163,6 +163,17 @@
         return stripInvisible(str).trim() === "";
     }
 
+    // A line that's just a bare "[" or "]" with nothing else is almost
+    // always a leftover display-math delimiter — the source meant LaTeX
+    // "\[ ... \]" but the backslashes were stripped somewhere along the
+    // way (common with plain-text copies from AI chats), leaving these
+    // orphaned brackets sitting on their own line around the formula.
+    // Treated as blank so they don't show up as a stray floating
+    // "[" / "]" line above/below the (now correctly rendering) formula.
+    function isStrayMathBracketLine(str) {
+        return stripInvisible(str).trim() === "[" || stripInvisible(str).trim() === "]";
+    }
+
     function inlineMarkdown(text) {
         let out = escapeHtml(text);
         out = out.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
@@ -321,7 +332,7 @@
             // Devanagari text can legitimately rely on zero-width
             // joiner/non-joiner for correct conjunct rendering, so we
             // must not strip those from real (non-blank) lines.
-            if (isBlank(lines[i])) { i++; continue; } // drop blank lines entirely (incl. invisible-char-only lines)
+            if (isBlank(lines[i]) || isStrayMathBracketLine(lines[i])) { i++; continue; } // drop blank lines (incl. invisible-char-only) and orphaned "\[...\]" delimiter brackets
             const trimmed = lines[i].trim();
 
             if (isTableRow(trimmed)) {
@@ -494,7 +505,14 @@
             window.katex.render(enlarged, target, {
                 throwOnError: false,
                 displayMode: displayMode,
-                macros: { "\\ce": "\\ce" }
+                macros: {
+                    "\\ce": "\\ce",
+                    // AI chat exports often write "\mum" for micrometre
+                    // (meaning \mu m, μm) — that's not a real KaTeX/LaTeX
+                    // command on its own, so without this it shows as a
+                    // red "undefined control sequence" error instead of μm.
+                    "\\mum": "\\mu m"
+                }
             });
         } catch (e) {
             target.textContent = source;
@@ -612,7 +630,12 @@
     // only of these, sitting inside otherwise-Hindi text, is treated
     // as a math island IF it also contains a backslash command or a
     // ^/_ (so plain numbers/English words aren't wrongly rendered).
-    const LATEX_SAFE_CHAR_RE = /[\\{}A-Za-z0-9+\-=_^().,\/\[\]\s*<>|:;'"!%~\u0001\u0002]/;
+    // \u0001\u0002 wrap a \text{} placeholder (see below); \u0005\u0006
+    // wrap a whole protected command-run placeholder (see
+    // extractDevanagariCommandRuns) — both must stay part of one
+    // continuous "safe" run instead of splitBySafety chopping them up
+    // at the control characters themselves.
+    const LATEX_SAFE_CHAR_RE = /[\\{}A-Za-z0-9+\-=_^().,\/\[\]\s*<>|:;'"!%~\u0001\u0002\u0005\u0006]/;
     function looksLikeMathRun(run) {
         return /\\|[\^_]/.test(run);
     }
@@ -642,6 +665,89 @@
         return { sup: exp, restAfter: str.slice(m[0].length) };
     }
 
+    // Wraps every bare (not already inside \text{...}) run of
+    // Devanagari characters in the given string with \text{...}. Used
+    // only on a string we already know is a complete LaTeX command's
+    // arguments (see autoWrapDevanagariInLatexRuns below), where any
+    // Devanagari present MUST be escaped into text mode or KaTeX has no
+    // glyphs for it at all.
+    function wrapBareDevanagari(str) {
+        const kept = [];
+        let out = str.replace(/\\text\{[^}]*\}/g, (m) => {
+            kept.push(m);
+            return "\u0003" + (kept.length - 1) + "\u0004";
+        });
+        out = out.replace(/[\u0900-\u097F]+(?:[ \u0900-\u097F]*[\u0900-\u097F])?/g, (m) => "\\text{" + m + "}");
+        out = out.replace(/\u0003(\d+)\u0004/g, (m, idx) => kept[Number(idx)]);
+        return out;
+    }
+
+    // AI chat exports often splice a Hindi word directly inside a LaTeX
+    // command's braces with no \text{} at all — e.g.
+    // "\boxed{चाल=\dfrac{दूरी}{समय}}". KaTeX has no Devanagari glyphs in
+    // math mode, so those need \text{} — but naively splitting the
+    // whole string into "Hindi" vs "math" runs (as splitBySafety below
+    // does for ordinary inline prose) tears \boxed{}/\dfrac{}{} apart at
+    // every Devanagari boundary and leaves an unbalanced, unrenderable
+    // fragment on each side. This scans for a complete command run
+    // instead — the command name plus ALL of its immediately-following
+    // {...}/[...] argument groups, balanced across any nesting — wraps
+    // the Devanagari found INSIDE that run with \text{}, and then
+    // protects the WHOLE run behind a \u0005N\u0006 placeholder (pushed
+    // into outArray) so the ordinary \text{}-extraction step further
+    // down — built for a plain \text{...} annotation sitting on its
+    // own in normal prose — can't reach in and re-fragment the very
+    // structure just repaired here. The caller renders each protected
+    // run as a single, atomic KaTeX call (see appendMathSpan usage in
+    // renderNakedLatexInBlock).
+    function extractDevanagariCommandRuns(text, outArray) {
+        const CONTINUE_CHARS = /[A-Za-z0-9\^_+\-=*/().,!]/;
+        let result = "";
+        let i = 0;
+        const n = text.length;
+
+        while (i < n) {
+            const ch = text[i];
+            const startsCommand = ch === "\\" && /[A-Za-z]/.test(text[i + 1] || "");
+
+            if (startsCommand) {
+                let j = i;
+                let depth = 0;
+                let runEnd = i;
+                let sawBrace = false;
+
+                while (j < n) {
+                    const c = text[j];
+                    if (c === "{" || c === "[") { depth++; sawBrace = true; j++; runEnd = j; continue; }
+                    if (c === "}" || c === "]") { depth = Math.max(0, depth - 1); j++; runEnd = j; continue; }
+                    if (depth > 0) { j++; runEnd = j; continue; } // inside braces: anything goes, incl. Devanagari
+                    if (c === "\\" && /[A-Za-z]/.test(text[j + 1] || "")) {
+                        j++;
+                        while (j < n && /[A-Za-z]/.test(text[j])) j++;
+                        runEnd = j;
+                        continue;
+                    }
+                    if (CONTINUE_CHARS.test(c)) { j++; runEnd = j; continue; }
+                    break;
+                }
+
+                const run = text.slice(i, runEnd);
+                if (sawBrace && /[\u0900-\u097F]/.test(run)) {
+                    outArray.push(wrapBareDevanagari(run));
+                    result += "\u0005" + (outArray.length - 1) + "\u0006";
+                } else {
+                    result += run;
+                }
+                i = runEnd;
+                continue;
+            }
+
+            result += ch;
+            i++;
+        }
+        return result;
+    }
+
     // Renders "naked" LaTeX (no $...$ wrapper, e.g. copied from an AI
     // chat) sitting inline inside otherwise-Hindi paragraphs. \text{}
     // arguments are pulled out as plain text instead of being fed to
@@ -661,6 +767,8 @@
 
         targets.forEach((textNode) => {
             let text = textNode.nodeValue;
+            const commandRuns = [];
+            text = extractDevanagariCommandRuns(text, commandRuns);
 
             // \xrightarrow{ऊष्मा}/\xleftarrow{...} reaction-condition labels
             // often contain Hindi, which KaTeX's math font can't render
@@ -686,6 +794,26 @@
 
             runs.forEach((run) => {
                 const piece = run.text;
+
+                // A fully-protected "\boxed{...}"-style run (see
+                // extractDevanagariCommandRuns) — render it as ONE
+                // atomic KaTeX call exactly as repaired, never letting
+                // the \text{}-splitting logic below touch it.
+                if (piece.indexOf("\u0005") !== -1) {
+                    changed = true;
+                    const re = /\u0005(\d+)\u0006/g;
+                    let lastIndex = 0, m;
+                    while ((m = re.exec(piece)) !== null) {
+                        const before = piece.slice(lastIndex, m.index);
+                        if (before) frag.appendChild(document.createTextNode(before));
+                        appendMathSpan(frag, commandRuns[Number(m[1])]);
+                        lastIndex = re.lastIndex;
+                    }
+                    const rest = piece.slice(lastIndex);
+                    if (rest) frag.appendChild(document.createTextNode(rest));
+                    return;
+                }
+
                 const hasPlaceholder = piece.indexOf("\u0001") !== -1;
 
                 if (run.safe && looksLikeMathRun(piece) && !hasPlaceholder) {
@@ -737,6 +865,53 @@
             if (changed) {
                 textNode.parentNode.replaceChild(frag, textNode);
             }
+        });
+    }
+
+    // "चाल = दूरी/समय" — a plain Hindi word equation with a bare "/"
+    // for division and NO LaTeX markup at all. This is different from
+    // (and runs independently of) the naked-LaTeX handling above: there
+    // no backslash/^_ ever appears, so the TreeWalker filter up there
+    // never even looks at this text. Renders it as a proper stacked
+    // fraction — each side must be a SINGLE Devanagari word (no spaces).
+    // That's deliberately narrow: a run of multiple words would happily
+    // keep matching straight into trailing prose like "समय होता है" and
+    // swallow "होता है" into the denominator, so multi-word
+    // numerator/denominator formulas ("वेग में परिवर्तन/समय अन्तराल")
+    // are left alone rather than risk that.
+    const PLAIN_WORD_FRACTION_RE = /([\u0900-\u097F]+)\s*=\s*([\u0900-\u097F]+)\s*\/\s*([\u0900-\u097F]+)/g;
+
+    function renderPlainWordFractionsInBlock(el) {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (node) {
+                if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+                PLAIN_WORD_FRACTION_RE.lastIndex = 0;
+                if (!PLAIN_WORD_FRACTION_RE.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+                if (node.parentElement && node.parentElement.closest(".latex-formula")) return NodeFilter.FILTER_REJECT;
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+
+        const targets = [];
+        let node;
+        while ((node = walker.nextNode())) targets.push(node);
+
+        targets.forEach((textNode) => {
+            const text = textNode.nodeValue;
+            PLAIN_WORD_FRACTION_RE.lastIndex = 0;
+            const frag = document.createDocumentFragment();
+            let lastIndex = 0, m, changed = false;
+            while ((m = PLAIN_WORD_FRACTION_RE.exec(text)) !== null) {
+                changed = true;
+                const before = text.slice(lastIndex, m.index);
+                if (before) frag.appendChild(document.createTextNode(before));
+                const lhs = m[1].trim(), num = m[2].trim(), den = m[3].trim();
+                appendMathSpan(frag, "\\text{" + lhs + "}=\\dfrac{\\text{" + num + "}}{\\text{" + den + "}}");
+                lastIndex = PLAIN_WORD_FRACTION_RE.lastIndex;
+            }
+            const rest = text.slice(lastIndex);
+            if (rest) frag.appendChild(document.createTextNode(rest));
+            if (changed) textNode.parentNode.replaceChild(frag, textNode);
         });
     }
 
@@ -792,6 +967,7 @@
             if (rawText && (rawText.indexOf("\\") !== -1 || /[\^_]/.test(rawText))) {
                 renderNakedLatexInBlock(el);
             }
+            renderPlainWordFractionsInBlock(el);
         });
     }
 
@@ -902,10 +1078,13 @@
         window.WPSEditor.scheduleRepagination();
     }
 
-    window.insertImage = function () {
-        const page = activePageForInsert || document.querySelector(".page");
-        if (!page) return;
+    function getActivePage() {
+        return activePageForInsert || document.querySelector(".page");
+    }
 
+    window.insertImage = function () {
+        const page = getActivePage();
+        if (!page) return;
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "image/*";
@@ -938,6 +1117,7 @@
         renderMathInPage: renderMathInPage,
         handlePaste: handlePaste,
         rememberActivePage: rememberActivePage,
+        getActivePage: getActivePage,
         cleanPasteToParagraphs: cleanPasteToParagraphs,
         sanitizePastedHtml: sanitizePastedHtml,
         initCore: initCore

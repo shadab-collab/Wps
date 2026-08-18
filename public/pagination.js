@@ -503,7 +503,6 @@
     function scheduleForPage(page) {
         debounce(debounceTimers, page, () => {
             window.WPSEditor.renderMathInPage(page);
-            window.WPSEditor.applyAutoBoldToAllQuestionLines(page);
             repaginateAll();
         }, RENDER_DELAY);
     }
@@ -565,7 +564,6 @@
     ================================================== */
     function attachPageListeners(page) {
         page.addEventListener("input", () => {
-            window.WPSEditor.checkAutoBoldQuestionLine(page);
             scheduleForPage(page);
         });
         page.addEventListener("paste", (e) => window.WPSEditor.handlePaste(e));
