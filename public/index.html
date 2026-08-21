@@ -14,17 +14,20 @@
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/mhchem.min.js"></script>
 
-    <!-- Urdu Nastaliq-style font for pages toggled to Urdu layout.
+    <!-- Urdu Nastaliq-style font for pages toggled to Urdu layout, AND
+         for the per-selection font tool below.
          Jameel Noori Nastaliq itself isn't available on any public
          font CDN (it's freeware, not openly licensed for redistribution
          like this) — Noto Nastaliq Urdu is Google's official
          equivalent, same Nastaliq calligraphic style. If a real Jameel
          Noori Nastaliq font file is ever added via @font-face in
          style.css, it takes priority automatically — no other change
-         needed (see the font-family order on .urdu-page in style.css). -->
+         needed (see the font-family order on .urdu-page / .font-urdu-nastaliq in style.css).
+         Kalam is a genuine Devanagari-supporting handwritten-style
+         Google Font, used for the "Hindi Handwritten" selection font. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400..700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400..700&family=Kalam:wght@400;700&display=swap">
 
     <link rel="stylesheet" href="style.css">
 </head>
@@ -64,6 +67,7 @@
 
     <div class="toolbar-group">
         <button class="btn btn-success" onclick="docSaveNow()">💾 Save</button>
+        <button class="btn" onclick="docCopy()" title="इस दस्तावेज़ की एक स्वतंत्र कॉपी बनाएँ">📄 Copy Document</button>
         <button class="btn" onclick="docDelete()">🗑️ हटाएँ</button>
         <button class="btn" onclick="editorUndo()">↩️ Undo</button>
         <button class="btn" onclick="editorRedo()">↪️ Redo</button>
@@ -75,6 +79,16 @@
             <input id="font-size-input" type="number" value="9" min="6" max="30" onchange="updateFontSize()">
             <span>pt</span>
         </div>
+    </div>
+
+    <div class="toolbar-group">
+        <span class="toolbar-label">फ़ॉन्ट (चुने हुए टेक्स्ट पर)</span>
+        <select id="font-select" class="btn" onchange="applySelectedFont(this.value)">
+            <option value="">-- फ़ॉन्ट चुनें --</option>
+            <option value="font-hindi-handwritten">✍️ हिन्दी हस्तलिखित</option>
+            <option value="font-urdu-nastaliq">🕌 उर्दू नस्तालीक़</option>
+            <option value="__clear__">↩️ सामान्य (हटाएँ)</option>
+        </select>
     </div>
 
     <div class="toolbar-group">
