@@ -13,6 +13,7 @@
 
     --font-size: 9pt;
     --line-height: 1.3;
+    --doc-font-family: "Segoe UI", Arial, sans-serif; /* font selector बदलता है, default वही जो पहले था */
 
     --page-width: 210mm;
     --page-height: 297mm;
@@ -306,6 +307,7 @@ Toolbar
     padding-left: calc(var(--inside-margin) + var(--gutter-margin));
     padding-right: var(--outside-margin);
     font-size: var(--font-size);
+    font-family: var(--doc-font-family);
     line-height: var(--line-height);
     white-space: pre-wrap;
     overflow-wrap: normal;

@@ -61,4 +61,22 @@ router.delete("/:id", async (req, res) => {
     }
 });
 
+// Duplicate an existing document: creates a brand-new document with
+// the exact same content as the original (title gets " (कॉपी)"
+// appended). The original document is never modified — this exists
+// purely as a one-click safety copy against accidental deletion.
+router.post("/:id/duplicate", async (req, res) => {
+    try {
+        const original = await Document.findById(req.params.id);
+        if (!original) return res.status(404).json({ error: "दस्तावेज़ नहीं मिला" });
+        const copy = await Document.create({
+            title: (original.title || "बिना नाम") + " (कॉपी)",
+            content: original.content
+        });
+        res.status(201).json(copy);
+    } catch (err) {
+        res.status(500).json({ error: "कॉपी बनाने में समस्या" });
+    }
+});
+
 module.exports = router;

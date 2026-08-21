@@ -64,6 +64,7 @@
 
     <div class="toolbar-group">
         <button class="btn btn-success" onclick="docSaveNow()">💾 Save</button>
+        <button class="btn" onclick="docDuplicate()" title="वर्तमान सेव्ड दस्तावेज़ की सुरक्षित कॉपी बनाएं (ओरिजिनल ज्यों का त्यों रहेगा)">📄 कॉपी बनाएं</button>
         <button class="btn" onclick="docDelete()">🗑️ हटाएँ</button>
         <button class="btn" onclick="editorUndo()">↩️ Undo</button>
         <button class="btn" onclick="editorRedo()">↪️ Redo</button>
@@ -74,6 +75,10 @@
             <span>आकार</span>
             <input id="font-size-input" type="number" value="9" min="6" max="30" onchange="updateFontSize()">
             <span>pt</span>
+        </div>
+        <div class="input-group">
+            <span>फॉन्ट</span>
+            <select id="font-family-select" onchange="updateFontFamily()"></select>
         </div>
     </div>
 
@@ -195,6 +200,7 @@
 <script defer src="undo-redo.js"></script>
 <script defer src="storage.js"></script>
 <script defer src="page-export.js"></script>
+<script defer src="document-tools.js"></script>
 
 </body>
 </html>
