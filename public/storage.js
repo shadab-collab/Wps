@@ -169,59 +169,6 @@
         setStatus("नया दस्तावेज़");
     }
 
-    /* ------------------------------------------------
-       COPY DOCUMENT
-       Creates a brand-new, fully independent document (its own DB
-       _id) with the same title (+ "- Copy"/"- Copy N") and an exact
-       snapshot of the CURRENT on-screen content — so it also picks up
-       any not-yet-autosaved edits, not just what's already in the
-       database. The copy becomes the active document (further saves
-       go to the new id); the original document row is never touched.
-    ------------------------------------------------ */
-    function nextCopyName(baseTitle, existingTitles) {
-        // If baseTitle already looks like "... - Copy" or "... - Copy N"
-        // (copying a copy), start from the ORIGINAL name instead of
-        // stacking into "X - Copy - Copy 2".
-        const copySuffixRe = /\s-\sCopy(?:\s\d+)?$/;
-        const root = baseTitle.replace(copySuffixRe, "").trim() || "बिना नाम";
-
-        const firstName = root + " - Copy";
-        if (existingTitles.indexOf(firstName) === -1) return firstName;
-
-        let n = 2;
-        while (existingTitles.indexOf(root + " - Copy " + n) !== -1) n++;
-        return root + " - Copy " + n;
-    }
-
-    async function copyCurrentDocument() {
-        setStatus("कॉपी बनाई जा रही है...");
-        try {
-            const baseTitle = (titleInput() && titleInput().value.trim()) || "बिना नाम";
-            // Exact snapshot of what's on screen right now — same
-            // content, formatting, images, tables, lists, and rendered
-            // KaTeX/LaTeX HTML the original document itself is saved
-            // with, since this is the very same innerHTML saveDocument()
-            // uses.
-            const content = pagesContainer().innerHTML;
-
-            const existing = await apiListDocuments();
-            const newTitle = nextCopyName(baseTitle, existing.map((d) => d.title || ""));
-
-            const doc = await apiCreateDocument(newTitle, content);
-
-            // The copy becomes the open document — its own independent
-            // _id, so edits/saves from here on never touch the
-            // original. No need to re-render pages/math/pagination:
-            // on-screen content is already correct and unchanged.
-            currentDocId = doc._id;
-            if (titleInput()) titleInput().value = newTitle;
-            await refreshDocList();
-            setStatus("कॉपी बन गई ✓ (\"" + newTitle + "\")");
-        } catch (e) {
-            setStatus("कॉपी बनाने में समस्या हुई");
-        }
-    }
-
     async function refreshDocList() {
         const select = docSelect();
         if (!select) return;
@@ -330,9 +277,6 @@
     };
     window.docDelete = function () {
         deleteCurrentDocument();
-    };
-    window.docCopy = function () {
-        copyCurrentDocument();
     };
 
     function init() {

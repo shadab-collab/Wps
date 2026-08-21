@@ -576,31 +576,6 @@ Toolbar
 }
 
 /* ==========================================
-   Per-selection fonts (Font Selector toolbar tool)
-   Deliberately separate from .urdu-page above: these apply to a
-   <span> wrapped around just the selected text, NOT the whole page —
-   so Hindi and Urdu can sit in the very same paragraph, each keeping
-   its own styling. An element's own font-family always wins over
-   whatever it would otherwise inherit from an ancestor (that's how
-   CSS inheritance/cascade works — it's not a specificity contest),
-   so these correctly override .urdu-page's page-wide font for
-   whatever text they wrap, with no conflict either way.
-==========================================*/
-
-.font-urdu-nastaliq {
-    font-family: "Jameel Noori Nastaliq", "Noto Nastaliq Urdu", "Noto Naskh Arabic", serif;
-    /* Keeps this run's own (rtl-ish, Arabic-script) bidi behavior from
-       disturbing the ordering of the surrounding Hindi/LTR text around
-       it — without forcing a page-wide direction change the way
-       .urdu-page does. */
-    unicode-bidi: isolate;
-}
-
-.font-hindi-handwritten {
-    font-family: "Kalam", cursive, sans-serif;
-}
-
-/* ==========================================
    Chapter Box — a visually distinct marker you
    drop at the start of a chapter so it's easy to
    spot while fast-scrolling through a long
