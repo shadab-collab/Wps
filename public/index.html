@@ -79,6 +79,8 @@
         <div class="input-group">
             <span>फॉन्ट</span>
             <select id="font-family-select" onchange="updateFontFamily()"></select>
+            <input type="file" id="font-upload-input" accept=".ttf,.otf,.woff,.woff2" style="display:none" onchange="handleFontUpload(event)">
+            <button class="btn" onclick="document.getElementById('font-upload-input').click()" title="अपने फ़ोन/कंप्यूटर से कोई भी फॉन्ट फाइल (.ttf/.otf/.woff/.woff2) चुनकर सीधे इस्तेमाल करें">➕ फॉन्ट अपलोड</button>
         </div>
     </div>
 
