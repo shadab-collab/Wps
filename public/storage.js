@@ -71,21 +71,21 @@
         return res.json();
     }
 
-    async function apiCreateDocument(title, content) {
+    async function apiCreateDocument(title, content, settings) {
         const res = await fetch(API_BASE, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, content })
+            body: JSON.stringify({ title, content, settings })
         });
         if (!res.ok) throw new Error("create failed");
         return res.json();
     }
 
-    async function apiUpdateDocument(id, title, content) {
+    async function apiUpdateDocument(id, title, content, settings) {
         const res = await fetch(API_BASE + "/" + id, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, content })
+            body: JSON.stringify({ title, content, settings })
         });
         if (!res.ok) throw new Error("update failed");
         return res.json();
@@ -98,6 +98,59 @@
     }
 
     /* ------------------------------------------------
+       PER-DOCUMENT SETTINGS (font size, line spacing, margins,
+       font family) — saved alongside content so that a document
+       reopens exactly as it was left, instead of always coming
+       back in the editor's current/default formatting.
+    ------------------------------------------------ */
+    const SETTINGS_VARS = [
+        "--font-size", "--line-height",
+        "--top-margin", "--bottom-margin", "--inside-margin", "--outside-margin",
+        "--gutter-margin", "--column-gap",
+        "--doc-font-family"
+    ];
+
+    function collectCurrentSettings() {
+        const style = getComputedStyle(document.documentElement);
+        const settings = {};
+        SETTINGS_VARS.forEach((v) => {
+            const val = style.getPropertyValue(v).trim();
+            if (val) settings[v] = val;
+        });
+        return settings;
+    }
+
+    function applySettings(settings) {
+        if (!settings || typeof settings !== "object") return;
+
+        SETTINGS_VARS.forEach((v) => {
+            if (settings[v]) document.documentElement.style.setProperty(v, settings[v]);
+        });
+
+        // toolbar के input boxes को भी sync करें ताकि UI झूठ न बोले
+        // (जैसे font-size box में 9 दिखे जबकि असल में 14pt लागू है)
+        const setInputValue = (id, cssVar, parseUnit) => {
+            const el = document.getElementById(id);
+            const raw = settings[cssVar];
+            if (!el || !raw) return;
+            const num = parseFloat(raw);
+            if (!isNaN(num)) el.value = parseUnit ? num : raw;
+        };
+        setInputValue("font-size-input", "--font-size", true);
+        setInputValue("line-height-input", "--line-height", true);
+        setInputValue("top-margin", "--top-margin", true);
+        setInputValue("bottom-margin", "--bottom-margin", true);
+        setInputValue("inside-margin", "--inside-margin", true);
+        setInputValue("outside-margin", "--outside-margin", true);
+        setInputValue("gutter-margin", "--gutter-margin", true);
+        setInputValue("column-gap-margin", "--column-gap", true);
+
+        if (window.WPSEditor && window.WPSEditor.syncFontSelectorUI) {
+            window.WPSEditor.syncFontSelectorUI(settings["--doc-font-family"]);
+        }
+    }
+
+    /* ------------------------------------------------
        SAVE / LOAD / NEW
     ------------------------------------------------ */
     async function saveDocument(silent) {
@@ -107,9 +160,10 @@
         try {
             const title = (titleInput() && titleInput().value.trim()) || "बिना नाम";
             const content = pagesContainer().innerHTML;
+            const settings = collectCurrentSettings();
             const doc = currentDocId
-                ? await apiUpdateDocument(currentDocId, title, content)
-                : await apiCreateDocument(title, content);
+                ? await apiUpdateDocument(currentDocId, title, content, settings)
+                : await apiCreateDocument(title, content, settings);
             currentDocId = doc._id;
             setStatus("सेव हो गया ✓");
             await refreshDocList();
@@ -127,6 +181,7 @@
             pagesContainer().innerHTML = doc.content || "";
             currentDocId = doc._id;
             if (titleInput()) titleInput().value = doc.title || "";
+            applySettings(doc.settings);
 
             // re-wire the restored pages (listeners, math, pagination)
             document.querySelectorAll(".page").forEach((page) => {

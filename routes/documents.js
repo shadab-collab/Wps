@@ -27,8 +27,8 @@ router.get("/:id", async (req, res) => {
 // Create a new document.
 router.post("/", async (req, res) => {
     try {
-        const { title, content } = req.body;
-        const doc = await Document.create({ title, content });
+        const { title, content, settings } = req.body;
+        const doc = await Document.create({ title, content, settings: settings || {} });
         res.status(201).json(doc);
     } catch (err) {
         res.status(500).json({ error: "दस्तावेज़ बनाने में समस्या" });
@@ -38,10 +38,10 @@ router.post("/", async (req, res) => {
 // Update (save) an existing document.
 router.put("/:id", async (req, res) => {
     try {
-        const { title, content } = req.body;
+        const { title, content, settings } = req.body;
         const doc = await Document.findByIdAndUpdate(
             req.params.id,
-            { title, content },
+            { title, content, settings: settings || {} },
             { new: true }
         );
         if (!doc) return res.status(404).json({ error: "दस्तावेज़ नहीं मिला" });
@@ -71,7 +71,8 @@ router.post("/:id/duplicate", async (req, res) => {
         if (!original) return res.status(404).json({ error: "दस्तावेज़ नहीं मिला" });
         const copy = await Document.create({
             title: (original.title || "बिना नाम") + " (कॉपी)",
-            content: original.content
+            content: original.content,
+            settings: original.settings || {}
         });
         res.status(201).json(copy);
     } catch (err) {

@@ -122,6 +122,19 @@
         }
     };
 
+    // storage.js इसे किसी सेव्ड दस्तावेज़ को खोलते समय बुलाता है, ताकि
+    // dropdown उसी फॉन्ट पर आ जाए जो उस दस्तावेज़ में सेव किया गया था
+    // (और ज़रूरत हो तो उसका Google Font भी लोड कर दे)
+    window.WPSEditor = window.WPSEditor || {};
+    window.WPSEditor.syncFontSelectorUI = function (familyValue) {
+        if (!familyValue) return;
+        const idx = ALL_FONTS.findIndex(function (f) { return f.family === familyValue; });
+        if (idx === -1) return; // dropdown में नहीं मिला (जैसे किसी और डिवाइस पर अपलोड किया फॉन्ट) — CSS var फिर भी लागू रहेगा
+        loadGoogleFontIfNeeded(ALL_FONTS[idx].googleFont);
+        const select = document.getElementById("font-family-select");
+        if (select) select.value = String(idx);
+    };
+
     /* ------------------------------------------------
        2c. फ़ोन/कंप्यूटर से सीधे फॉन्ट अपलोड ("➕ फॉन्ट अपलोड" बटन)
 

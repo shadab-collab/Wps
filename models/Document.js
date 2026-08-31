@@ -11,6 +11,15 @@ const documentSchema = new mongoose.Schema(
         content: {
             type: String, // innerHTML of #pages-container
             default: ""
+        },
+        settings: {
+            // font size, line-height, margins, font-family — the CSS
+            // custom-property values active when the document was last
+            // saved. Optional/backward-compatible: old documents simply
+            // have {} here and fall back to whatever the editor's
+            // current defaults are.
+            type: Object,
+            default: {}
         }
     },
     { timestamps: true }
