@@ -639,49 +639,61 @@ Toolbar
 
 .qp-coaching-name {
     text-align: center;
-    font-size: 1.8em;
+    font-size: 1.9em;
     font-weight: 800;
     letter-spacing: 0.5px;
     margin-bottom: 8px;
 }
 
+/* असली bordered ग्रिड — form जैसा दिखे, सिर्फ़ नीचे रेखा वाला flat
+   text नहीं (यही वो "table में फील नहीं है" वाली शिकायत ठीक करता है) */
 .qp-info-table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 6px;
+    margin-bottom: 10px;
     font-size: 1em;
+    border: 1.5px solid #000000;
 }
 
 .qp-info-table td {
-    padding: 2px 4px;
-    vertical-align: bottom;
-}
-
-.qp-info-table td.qp-right {
-    text-align: right;
+    border: 1px solid #000000;
+    padding: 5px 12px;
+    vertical-align: middle;
 }
 
 .qp-label {
     font-weight: 700;
+    margin-right: 4px;
 }
 
 .qp-fill {
-    border-bottom: 1px solid #000000;
-    padding: 0 6px;
-    min-width: 90px;
+    border-bottom: 1px dotted #000000;
+    padding: 0 8px;
+    min-width: 100px;
     display: inline-block;
 }
 
+/* MS Word के "double line" border जैसा — border-style:double अपने
+   आप दो समानांतर रेखाएँ बना देता है */
 .qp-rule {
     border: none;
-    border-top: 2px solid #000000;
-    margin: 4px 0 10px;
+    border-top: 3px double #000000;
+    margin: 0 0 10px;
 }
 
-.qp-title {
+/* Heading वाला हिस्सा — ऊपर-नीचे रेखा वाला बॉक्स, अंदर पाइप (|) से
+   सजी हुई centered लाइनें, बिल्कुल असली स्कूल पेपर जैसा */
+.qp-title-box {
+    border-top: 1.5px solid #000000;
+    border-bottom: 1.5px solid #000000;
+    padding: 6px 4px;
+    margin-bottom: 10px;
+}
+
+.qp-title-line {
     text-align: center;
     font-weight: 700;
-    margin-bottom: 10px;
+    line-height: 1.5;
 }
 
 /* ==========================================

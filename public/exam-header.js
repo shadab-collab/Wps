@@ -36,15 +36,17 @@
             '<table class="qp-info-table"><tbody>' +
             '<tr>' +
             '<td><span class="qp-label">Class:</span> <span class="qp-fill">e.g. 10-A</span></td>' +
-            '<td class="qp-right"><span class="qp-label">FM:</span> <span class="qp-fill">100</span></td>' +
+            '<td><span class="qp-label">FM:</span> <span class="qp-fill">100</span></td>' +
             "</tr>" +
             "<tr>" +
             '<td><span class="qp-label">Subject:</span> <span class="qp-fill">e.g. Mathematics</span></td>' +
-            '<td class="qp-right"><span class="qp-label">Time:</span> <span class="qp-fill">3 hrs</span></td>' +
+            '<td><span class="qp-label">Time:</span> <span class="qp-fill">3 hrs</span></td>' +
             "</tr>" +
             "</tbody></table>" +
             '<hr class="qp-rule">' +
-            '<div class="qp-title">यहाँ पेपर की heading लिखें — जैसे: विज्ञान टेस्ट पेपर — Set 2</div>' +
+            '<div class="qp-title-box">' +
+            '<div class="qp-title-line">|&nbsp; यहाँ पेपर की heading लिखें — जैसे: विज्ञान टेस्ट पेपर — Set 2 &nbsp;|</div>' +
+            "</div>" +
             "</div>";
 
         firstPage.insertAdjacentHTML("afterbegin", html);
