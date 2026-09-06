@@ -645,20 +645,22 @@ Toolbar
     margin-bottom: 8px;
 }
 
-/* असली bordered ग्रिड — form जैसा दिखे, सिर्फ़ नीचे रेखा वाला flat
-   text नहीं (यही वो "table में फील नहीं है" वाली शिकायत ठीक करता है) */
+/* Simple plain text — कोई box/border नहीं, सिर्फ़ भरने के लिए नीचे
+   एक हल्की dotted लाइन */
 .qp-info-table {
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 10px;
     font-size: 1em;
-    border: 1.5px solid #000000;
 }
 
 .qp-info-table td {
-    border: 1px solid #000000;
-    padding: 5px 12px;
+    padding: 3px 4px;
     vertical-align: middle;
+}
+
+.qp-info-table td:last-child {
+    text-align: right;
 }
 
 .qp-label {
