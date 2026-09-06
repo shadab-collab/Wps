@@ -623,6 +623,71 @@ Toolbar
 }
 
 /* ==========================================
+   Exam Paper Header
+   column-span:all is what makes this ignore the
+   3-column layout of .page: it always renders as one
+   full-width block above the columns, no matter where
+   in the page's column flow it sits. Only ever inserted
+   at the very top of page-1 (see insertExamHeader in
+   editor-extras.js) — data-no-split keeps it as one
+   atomic unit if pagination ever has to move things
+   around it.
+==========================================*/
+
+.exam-header {
+    column-span: all;
+    -webkit-column-span: all;
+    margin: 0 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #000000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    color: #000000;
+}
+
+.exam-header-title {
+    text-align: center;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 1.9em;
+    font-weight: 700;
+    letter-spacing: .3px;
+    margin-bottom: 6px;
+}
+
+.exam-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-top: 4px;
+    font-family: "Times New Roman", Times, serif;
+    font-size: 0.95em;
+}
+
+.exam-header-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.exam-header-field-right {
+    margin-left: auto;
+}
+
+.exam-header-label {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.exam-header-value {
+    display: inline-block;
+    min-width: 70px;
+    border: 1px solid #000000;
+    padding: 1px 10px;
+    text-align: center;
+}
+
+/* ==========================================
    Floating Keyboard Toggle Button
 ==========================================*/
 

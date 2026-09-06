@@ -130,6 +130,49 @@
     };
 
     /* ==================================================
+       EXAM PAPER HEADER (page 1 only)
+       Inserts (or removes, if already present) the coaching-centre
+       header block at the very top of page-1 — always page-1 of the
+       current document specifically, regardless of where the cursor
+       is, since this is meant for question-paper documents where
+       only the first page carries the letterhead. Marked
+       data-no-split="true" so pagination.js's generic splitting never
+       tears it apart if the page is ever tight for room; it uses
+       column-span:all in CSS to sit above the 3-column layout as one
+       full-width block, untouched by column splitting. It's plain
+       editable content (no contenteditable=false anywhere inside), so
+       every field — title, class, subject, FM, time — can be edited
+       afterwards exactly like any other text on the page.
+    ================================================== */
+    window.insertExamHeader = function () {
+        const page = document.getElementById("page-1") || document.querySelector(".page");
+        if (!page) return;
+
+        const existing = page.querySelector(":scope > .exam-header");
+        if (existing) {
+            existing.remove();
+            window.WPSEditor.scheduleForPage(page);
+            return;
+        }
+
+        const html =
+            '<div class="exam-header" data-no-split="true">' +
+                '<div class="exam-header-title">Shadab Coaching Centre</div>' +
+                '<div class="exam-header-row">' +
+                    '<div class="exam-header-field"><span class="exam-header-label">Class:</span><span class="exam-header-value">e.g. 10-A</span></div>' +
+                    '<div class="exam-header-field exam-header-field-right"><span class="exam-header-label">FM:</span><span class="exam-header-value">100</span></div>' +
+                '</div>' +
+                '<div class="exam-header-row">' +
+                    '<div class="exam-header-field"><span class="exam-header-label">Subject:</span><span class="exam-header-value">e.g. Mathematics</span></div>' +
+                    '<div class="exam-header-field exam-header-field-right"><span class="exam-header-label">Time:</span><span class="exam-header-value">3 hrs</span></div>' +
+                '</div>' +
+            '</div>';
+
+        page.insertAdjacentHTML("afterbegin", html);
+        window.WPSEditor.scheduleForPage(page);
+    };
+
+    /* ==================================================
        URDU PAGE TOGGLE
        Flips the current page (wherever the cursor/last selection was)
        into RTL, Nastaliq-styled layout, or back to normal — see the
