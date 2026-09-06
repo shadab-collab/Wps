@@ -623,6 +623,65 @@ Toolbar
 }
 
 /* ==========================================
+   प्रश्न-पत्र हैडर (Question Paper Header)
+   "📝 प्रश्न पत्र हैडर" बटन से पहले पेज में डाला जाता है — देखें
+   exam-header.js। हर हिस्सा सामान्य editable text जैसा ही है,
+   बस क्लिक करके अपनी जानकारी टाइप कर दें।
+   ========================================== */
+.qp-header {
+    margin: 0 0 14px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.qp-coaching-name {
+    text-align: center;
+    font-size: 1.8em;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.qp-info-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 6px;
+    font-size: 1em;
+}
+
+.qp-info-table td {
+    padding: 2px 4px;
+    vertical-align: bottom;
+}
+
+.qp-info-table td.qp-right {
+    text-align: right;
+}
+
+.qp-label {
+    font-weight: 700;
+}
+
+.qp-fill {
+    border-bottom: 1px solid #000000;
+    padding: 0 6px;
+    min-width: 90px;
+    display: inline-block;
+}
+
+.qp-rule {
+    border: none;
+    border-top: 2px solid #000000;
+    margin: 4px 0 10px;
+}
+
+.qp-title {
+    text-align: center;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+/* ==========================================
    Floating Keyboard Toggle Button
 ==========================================*/
 
