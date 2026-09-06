@@ -632,6 +632,9 @@ Toolbar
     margin: 0 0 14px;
     break-inside: avoid;
     page-break-inside: avoid;
+    column-span: all;
+    -webkit-column-span: all;
+    width: 100%;
 }
 
 .qp-coaching-name {
