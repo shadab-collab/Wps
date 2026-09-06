@@ -629,6 +629,13 @@ Toolbar
    बस क्लिक करके अपनी जानकारी टाइप कर दें। जितनी हो सके उतनी कम
    ऊँचाई ले, ताकि एक पेज में ज़्यादा प्रश्न आ सकें — इसीलिए कोई
    box/border नहीं, सिर्फ़ ज़रूरी spacing है।
+
+   जान-बूझकर <table> इस्तेमाल नहीं किया — mobile browsers में
+   contenteditable के अंदर table cell पर पहला tap सिर्फ़ पूरे cell
+   को select करता है, दूसरा tap जाकर cursor रखता है (यही double-tap
+   वाली दिक्कत थी, और cell-select होने पर वही "box" जैसा दिखता भी
+   था)। इसकी जगह plain flexbox divs हैं — सामान्य text जैसे ही एक
+   ही tap में edit हो जाते हैं।
    ========================================== */
 .qp-header {
     margin: 0 0 6px;
@@ -641,31 +648,25 @@ Toolbar
 
 /* तीन-column लेआउट: बाएँ Class/Subject, बीच में बड़ा Coaching नाम,
    दाएँ FM/Time — बिल्कुल असली स्कूल पेपर जैसा एक ही compact block */
-.qp-header-table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
+.qp-header-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.95em;
 }
 
-.qp-header-table td {
-    padding: 0 4px;
-    vertical-align: middle;
+.qp-side-left,
+.qp-side-right {
+    flex: 0 0 25%;
     line-height: 1.3;
 }
 
-.qp-side-left {
-    width: 25%;
-    text-align: left;
-}
-
 .qp-side-right {
-    width: 25%;
     text-align: right;
 }
 
 .qp-center-name {
-    width: 50%;
+    flex: 1 1 50%;
     text-align: center;
     font-size: 1.6em;
     font-weight: 800;

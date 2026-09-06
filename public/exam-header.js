@@ -32,17 +32,17 @@
 
         const html =
             '<div class="qp-header" data-no-split="true">' +
-            '<table class="qp-header-table"><tbody>' +
-            '<tr>' +
-            '<td class="qp-side-left"><span class="qp-label">Class:</span> <span class="qp-fill">e.g. 10-A</span></td>' +
-            '<td class="qp-center-name" rowspan="2">Shadab Coaching Centre</td>' +
-            '<td class="qp-side-right"><span class="qp-label">FM:</span> <span class="qp-fill">100</span></td>' +
-            "</tr>" +
-            "<tr>" +
-            '<td class="qp-side-left"><span class="qp-label">Subject:</span> <span class="qp-fill">e.g. Mathematics</span></td>' +
-            '<td class="qp-side-right"><span class="qp-label">Time:</span> <span class="qp-fill">3 hrs</span></td>' +
-            "</tr>" +
-            "</tbody></table>" +
+            '<div class="qp-header-row">' +
+            '<div class="qp-side-left">' +
+            '<div><span class="qp-label">Class:</span> <span class="qp-fill">e.g. 10-A</span></div>' +
+            '<div><span class="qp-label">Subject:</span> <span class="qp-fill">e.g. Mathematics</span></div>' +
+            "</div>" +
+            '<div class="qp-center-name">Shadab Coaching Centre</div>' +
+            '<div class="qp-side-right">' +
+            '<div><span class="qp-label">FM:</span> <span class="qp-fill">100</span></div>' +
+            '<div><span class="qp-label">Time:</span> <span class="qp-fill">3 hrs</span></div>' +
+            "</div>" +
+            "</div>" +
             '<hr class="qp-rule">' +
             '<div class="qp-title-line">यहाँ पेपर की heading लिखें — जैसे: विज्ञान टेस्ट पेपर — Set 2</div>' +
             "</div>";
