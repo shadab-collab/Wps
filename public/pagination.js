@@ -524,8 +524,22 @@
 
     function scheduleForPage(page) {
         debounce(debounceTimers, page, () => {
-            window.WPSEditor.renderMathInPage(page);
-            repaginateAll();
+            // Repaginate FIRST, before the Markdown auto-normalize pass
+            // (attachMarkdownBlocksInPage, inside renderMathInPage) gets
+            // a chance to rebuild a freshly-pasted list/table — letting
+            // pagination's own list/table SPLITTING logic run first,
+            // against the original pasted element, avoids any chance of
+            // the rebuild racing with (and undoing) an in-progress
+            // split. Once pages have settled, normalize every page that
+            // currently exists — not just this one — so a brand-new
+            // continuation page created by the split above (e.g. the
+            // rest of a long numbered list that spilled onto it) gets
+            // its own double-tap raw-edit wiring right away too,
+            // instead of only whenever the user happens to interact
+            // with that page later.
+            repaginateAll(() => {
+                allPages().forEach((p) => window.WPSEditor.renderMathInPage(p));
+            });
         }, RENDER_DELAY);
     }
 

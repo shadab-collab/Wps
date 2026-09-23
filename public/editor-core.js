@@ -311,9 +311,19 @@
                 // "real" list, which reads as data loss to the user.
                 htmlParts.push("<p>" + escapeHtml(listItems[0].marker) + " " + listItems[0].html + "</p>");
             } else {
+                // A numbered run's first marker (e.g. "6." for a
+                // continuation list picking up after page 4's "1."-"5.")
+                // carries where the real numbering should start — an
+                // <ol> defaults to 1 otherwise, which is exactly the
+                // "renumbers back to 1" bug this avoids. Only relevant
+                // for "ol"; "ul" bullets have no numbering to preserve.
+                let openTag = "<" + listType;
+                if (listType === "ol") {
+                    const firstNum = parseInt(listItems[0].marker, 10);
+                    if (firstNum && firstNum !== 1) openTag += ' start="' + firstNum + '"';
+                }
                 htmlParts.push(
-                    "<" +
-                        listType +
+                    openTag +
                         ">" +
                         listItems.map((it) => "<li>" + it.html + "</li>").join("") +
                         "</" +

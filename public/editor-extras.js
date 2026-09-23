@@ -439,9 +439,16 @@
         // <ol> becomes "1. item", "2. item"... (cleanPasteToParagraphs
         // rebuilds an <ol> from that); a <ul> keeps the plain "- item"
         // it always used, rebuilding a bullet <ul>.
+        // A continuation list from pagination's list-splitting (see
+        // moveOverflowForward in pagination.js) carries a real
+        // start="6" (etc.) attribute so its numbers keep counting up
+        // from the page before — that has to show up here as the
+        // actual "6. item", "7. item"... or the round trip below has
+        // no way to know this list didn't start at 1.
         const ordered = list.tagName === "OL";
+        const startAt = ordered ? parseInt(list.getAttribute("start") || "1", 10) || 1 : 1;
         return items
-            .map((li, idx) => (ordered ? idx + 1 + ". " : "- ") + cleanTextForMarkdown(li).trim())
+            .map((li, idx) => (ordered ? startAt + idx + ". " : "- ") + cleanTextForMarkdown(li).trim())
             .join("\n");
     }
 
@@ -526,6 +533,21 @@
     // button for boxes found stuck open. Tries the real Markdown
     // rebuild first; if that looks like it lost content, drops to the
     // line-preserving fallback instead of ever leaving the page blank.
+    // Round-tripping a page-split continuation list/table through
+    // Markdown (either automatically, or via the double-tap raw-edit
+    // box below) rebuilds a brand-new element — this carries its
+    // data-split-continuation marker over so later pagination
+    // (pullBackFromNext in pagination.js) still recognizes it as the
+    // same continuation instead of treating it as a fresh, separate
+    // list/table. The start number itself doesn't need copying
+    // separately — domListToMarkdown/cleanPasteToParagraphs above
+    // already carry the real numbers through the text round-trip.
+    function carryOverContinuationMarker(original, rendered) {
+        if (!original || !original.dataset || original.dataset.splitContinuation !== "true") return;
+        const target = rendered && rendered.nodeType === 11 ? rendered.firstElementChild : rendered;
+        if (target && target.tagName === original.tagName) target.dataset.splitContinuation = "true";
+    }
+
     function renderRawEditBoxSafely(editableEl) {
         const raw = editableEl.textContent;
         let rendered = markdownSourceToElement(raw);
@@ -535,6 +557,10 @@
         if (!rendered) {
             editableEl.remove(); // raw was entirely blank — nothing to keep
             return;
+        }
+        if (editableEl.dataset.wasSplitContinuation === "true" && editableEl.dataset.origTag) {
+            const target = rendered.nodeType === 11 ? rendered.firstElementChild : rendered;
+            if (target && target.tagName === editableEl.dataset.origTag) target.dataset.splitContinuation = "true";
         }
         attachToggleToTopNodes(rendered);
         editableEl.replaceWith(rendered);
@@ -586,6 +612,16 @@
             editable.className = "md-raw-edit";
             editable.contentEditable = "true";
             editable.textContent = raw;
+            // Remember if this was a page-split continuation list/table
+            // (see moveOverflowForward in pagination.js) so
+            // renderRawEditBoxSafely can restore that marker on the
+            // rebuilt element when the box closes — otherwise editing
+            // it here would silently turn it into a regular, separate
+            // list/table that later pagination no longer recognizes.
+            if (el.dataset && el.dataset.splitContinuation === "true") {
+                editable.dataset.wasSplitContinuation = "true";
+                editable.dataset.origTag = el.tagName;
+            }
             el.replaceWith(editable);
 
             const range = document.createRange();
@@ -655,6 +691,7 @@
         // path, or a bare text node (nodeType 3) only if parsing
         // produced nothing at all.
         if (rendered && rendered.nodeType !== 3 && isSafeReplacement(el, rendered)) {
+            carryOverContinuationMarker(el, rendered);
             attachToggleToTopNodes(rendered);
             el.replaceWith(rendered);
             return rendered;
