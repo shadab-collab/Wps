@@ -173,6 +173,140 @@
     };
 
     /* ==================================================
+       PLAIN TEXT MODE (per page, toggled)
+       Flattens the active page — whatever's rendered right
+       now (headings, paragraphs, lists, tables, math,
+       images, chapter box, exam header) — into one flat,
+       freely-editable block of plain text, then rebuilds it
+       back into the normal rendered view when toggled off
+       again. Reuses the exact same Markdown
+       serialize/parse pair the per-block raw-edit boxes use
+       (markdownSourceFor / markdownSourceToElement /
+       cleanTextForMarkdown, all defined below in this same
+       file) — a heading becomes "# text", a list becomes
+       "- item" lines, a table becomes "| a | b |" rows, a
+       rendered formula becomes its raw LaTeX — so the round
+       trip behaves exactly like existing raw-edit already
+       does, just for the whole page in one go instead of
+       one block at a time.
+
+       Images / the chapter box / the exam header have no
+       plain-text form at all, so each is swapped for a
+       small numbered placeholder line (e.g. "[[तस्वीर 1]]")
+       while flattened, and spliced back to the exact
+       original element on the way out — matched by that
+       placeholder text landing in its own line/paragraph
+       after the Markdown rebuild. Deleting a placeholder
+       line while editing deletes that image/box for good,
+       same as deleting any other line would.
+    ================================================== */
+    const PLAIN_MODE_ATOMIC_SELECTOR = ".img-wrap, .chapter-box, .exam-header";
+    const PLAIN_MODE_ATOMIC_LABELS = {
+        "img-wrap": "तस्वीर",
+        "chapter-box": "अध्याय-बॉक्स",
+        "exam-header": "परीक्षा-हेडर"
+    };
+    // page -> array of stashed original elements, only while that page
+    // is currently in plain-text mode.
+    const plainModeAtomics = new WeakMap();
+
+    function plainModeAtomicLabel(el) {
+        for (const cls in PLAIN_MODE_ATOMIC_LABELS) {
+            if (el.classList.contains(cls)) return PLAIN_MODE_ATOMIC_LABELS[cls];
+        }
+        return "ब्लॉक";
+    }
+
+    // Walks the page's top-level children only (mirrors how
+    // markdownSourceFor/cleanTextForMarkdown already treat one
+    // top-level block as one unit) — images/chapter-box/exam-header
+    // become numbered placeholders, everything else becomes its
+    // Markdown line(s), blank ones dropped.
+    function flattenPageToPlainText(page) {
+        const atomics = [];
+        const lines = [];
+        Array.from(page.children).forEach((el) => {
+            if (el.matches && el.matches(PLAIN_MODE_ATOMIC_SELECTOR)) {
+                atomics.push(el);
+                lines.push("[[" + plainModeAtomicLabel(el) + " " + atomics.length + "]]");
+                return;
+            }
+            const src = markdownSourceFor(el);
+            if (!isBlankMd(src)) lines.push(src);
+        });
+        return { text: lines.join("\n\n"), atomics: atomics };
+    }
+
+    // Reads the page's current DOM back out as one plain-text string —
+    // used instead of page.textContent so a paragraph break the user
+    // made with Enter (which the browser turns into a new top-level
+    // <p>, not a literal newline character) still comes back as its
+    // own line, exactly like the original flattened text was laid out.
+    function readPlainTextFromPage(page) {
+        const parts = [];
+        page.childNodes.forEach((node) => {
+            if (node.nodeType === 3) {
+                parts.push(node.nodeValue);
+            } else if (node.nodeType === 1) {
+                parts.push(node.tagName === "BR" ? "" : node.textContent);
+            }
+        });
+        return parts.join("\n");
+    }
+
+    // Puts each stashed image/chapter-box/exam-header back where its
+    // placeholder ended up after the Markdown rebuild — a placeholder
+    // always lands as the entire text of its own top-level node (it
+    // was emitted on its own line, blank-line-separated from
+    // everything around it), so matching the WHOLE trimmed text of
+    // each top-level node against the placeholder pattern is enough.
+    function restorePlainModeAtomics(fragment, atomics) {
+        const placeholderRe = /^\[\[[^\[\]]+\s(\d+)\]\]$/;
+        Array.from(fragment.childNodes).forEach((node) => {
+            if (node.nodeType !== 1) return;
+            const m = (node.textContent || "").trim().match(placeholderRe);
+            if (!m) return;
+            const original = atomics[parseInt(m[1], 10) - 1];
+            if (original) node.replaceWith(original);
+        });
+    }
+
+    window.togglePlainTextMode = function () {
+        const page = window.WPSEditor.getActivePage ? window.WPSEditor.getActivePage() : document.querySelector(".page");
+        if (!page) return;
+
+        if (page.classList.contains("plain-text-mode")) {
+            // OFF — rebuild the rendered view from the edited text.
+            const raw = readPlainTextFromPage(page);
+            let rendered = markdownSourceToElement(raw);
+            if (!rendered || rendered.nodeType === 3 || !isSafeRawRebuild(raw, rendered)) {
+                rendered = safeParagraphFallback(raw) || document.createDocumentFragment();
+            }
+            restorePlainModeAtomics(rendered, plainModeAtomics.get(page) || []);
+            attachToggleToTopNodes(rendered);
+            plainModeAtomics.delete(page);
+            page.classList.remove("plain-text-mode");
+            page.innerHTML = "";
+            page.appendChild(rendered);
+            window.WPSEditor.renderMathInPage(page);
+            window.WPSEditor.scheduleForPage(page);
+        } else {
+            // ON — flatten to plain text.
+            const flattened = flattenPageToPlainText(page);
+            plainModeAtomics.set(page, flattened.atomics);
+            page.classList.add("plain-text-mode");
+            page.textContent = flattened.text;
+            const range = document.createRange();
+            range.selectNodeContents(page);
+            range.collapse(false);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            page.focus({ preventScroll: true });
+        }
+    };
+
+    /* ==================================================
        URDU PAGE TOGGLE
        Flips the current page (wherever the cursor/last selection was)
        into RTL, Nastaliq-styled layout, or back to normal — see the

@@ -688,6 +688,29 @@ Toolbar
 }
 
 /* ==========================================
+   Plain Text Mode (whole page, toggled)
+   Forces a single column and auto height so the flat
+   text is easy to read/edit top-to-bottom instead of
+   being squeezed into the normal 3-column A4 layout —
+   same visual language (dashed outline, monospace,
+   light tint) as the existing per-block raw-edit boxes
+   (.md-raw-edit) so it reads as "you're in raw-edit
+   territory" at a glance.
+==========================================*/
+
+.page.plain-text-mode {
+    column-count: 1 !important;
+    height: auto !important;
+    min-height: var(--page-height);
+    overflow: visible !important;
+    white-space: pre-wrap;
+    font-family: "Courier New", monospace;
+    background: #f5f7fa;
+    outline: 2px dashed #1a73e8;
+    outline-offset: -2px;
+}
+
+/* ==========================================
    Floating Keyboard Toggle Button
 ==========================================*/
 

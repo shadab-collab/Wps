@@ -117,11 +117,23 @@
     }
 
     function moveOverflowForward(page) {
+        // A page mid-edit in plain-text mode is never treated as
+        // overflowing (see isOverflowing below) — this extra check is
+        // just a safety net in case that function is ever called on
+        // one directly from somewhere else.
+        if (page.classList.contains("plain-text-mode")) return;
         let guard = 0;
         while (isOverflowing(page) && page.children.length > 0 && guard < 500) {
             const lastChild = page.lastElementChild;
             if (!lastChild) break;
             const nextPage = getOrCreateNextPage(page);
+            // A page in plain-text mode (see togglePlainTextMode in
+            // editor-extras.js) is a flat text view the user is
+            // actively editing — never splice rendered HTML into it
+            // mid-edit. Leave this page overflowing rather than push
+            // content onto it; it resolves itself once the user turns
+            // plain-text mode off for that page.
+            if (nextPage.classList.contains("plain-text-mode")) break;
 
             if (isSplittableList(lastChild) && lastChild.children.length > 1) {
                 let nextList = nextPage.firstElementChild;
@@ -260,10 +272,20 @@
     }
 
     function pullBackFromNext(page) {
+        // Never pull content INTO a page that's in plain-text mode —
+        // with column-count:1 and auto height it would never look
+        // "full" to isOverflowing, so without this guard it could keep
+        // draining every later page into this one flat text view.
+        if (page.classList.contains("plain-text-mode")) return;
         const wrapper = page.closest(".page-wrapper");
         const nextWrapper = wrapper.nextElementSibling;
         if (!nextWrapper) return;
         const nextPage = nextWrapper.querySelector(".page");
+        // Never pull content out of a page that's currently in
+        // plain-text mode (see togglePlainTextMode in editor-extras.js)
+        // — its content is a flat text view mid-edit, not the rendered
+        // HTML this function expects to move piece by piece.
+        if (nextPage && nextPage.classList.contains("plain-text-mode")) return;
         let guard = 0;
 
         while (nextPage && nextPage.firstElementChild && guard < 500) {
