@@ -291,18 +291,42 @@
             window.WPSEditor.renderMathInPage(page);
             window.WPSEditor.scheduleForPage(page);
         } else {
-            // ON — flatten to plain text.
+            // ON — flatten to plain text. Each line becomes its own
+            // <div> rather than one raw text node with embedded "\n"
+            // characters — a bare text node as a contenteditable's
+            // only content is unreliable to type into on several
+            // mobile browsers (no proper caret/insertion point), while
+            // one block per line behaves exactly like a normal simple
+            // text editor. Empty lines get a <br> so they still hold a
+            // visible line and stay editable.
             const flattened = flattenPageToPlainText(page);
             plainModeAtomics.set(page, flattened.atomics);
             page.classList.add("plain-text-mode");
-            page.textContent = flattened.text;
+            page.innerHTML = "";
+            const lines = flattened.text.split("\n");
+            lines.forEach((line) => {
+                const div = document.createElement("div");
+                if (line === "") {
+                    div.appendChild(document.createElement("br"));
+                } else {
+                    div.textContent = line;
+                }
+                page.appendChild(div);
+            });
+            if (!page.lastChild) page.appendChild(document.createElement("div"));
+
+            // Focus BEFORE placing the selection, not after — focusing
+            // a contenteditable element can itself reset/replace
+            // whatever selection was set earlier, which is what made
+            // the whole page appear selected (solid blue) instead of
+            // showing a simple blinking cursor at the end.
+            page.focus({ preventScroll: true });
             const range = document.createRange();
-            range.selectNodeContents(page);
+            range.selectNodeContents(page.lastChild);
             range.collapse(false);
             const sel = window.getSelection();
             sel.removeAllRanges();
             sel.addRange(range);
-            page.focus({ preventScroll: true });
         }
     };
 
