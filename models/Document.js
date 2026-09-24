@@ -20,6 +20,16 @@ const documentSchema = new mongoose.Schema(
             // current defaults are.
             type: Object,
             default: {}
+        },
+        archived: {
+            // Docs the user doesn't need right now but might later —
+            // kept out of the normal "सेव्ड दस्तावेज़" list/dropdown so
+            // that list stays short, but still fully open-able from the
+            // separate "आर्काइव" list on the homepage. Missing on old
+            // documents (from before this field existed) is treated the
+            // same as false by the list queries in routes/documents.js.
+            type: Boolean,
+            default: false
         }
     },
     { timestamps: true }

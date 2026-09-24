@@ -59,8 +59,8 @@
     /* ------------------------------------------------
        API CALLS
     ------------------------------------------------ */
-    async function apiListDocuments() {
-        const res = await fetch(API_BASE);
+    async function apiListDocuments(archived) {
+        const res = await fetch(API_BASE + (archived ? "?archived=true" : ""));
         if (!res.ok) throw new Error("list failed");
         return res.json();
     }
@@ -94,6 +94,21 @@
     async function apiDeleteDocument(id) {
         const res = await fetch(API_BASE + "/" + id, { method: "DELETE" });
         if (!res.ok) throw new Error("delete failed");
+        return res.json();
+    }
+
+    // Archive = "not needed right now, might be later" — kept out of
+    // the normal Saved list/dropdown but never deleted; unarchive just
+    // reverses it. Both are a single PUT with no body.
+    async function apiArchiveDocument(id) {
+        const res = await fetch(API_BASE + "/" + id + "/archive", { method: "PUT" });
+        if (!res.ok) throw new Error("archive failed");
+        return res.json();
+    }
+
+    async function apiUnarchiveDocument(id) {
+        const res = await fetch(API_BASE + "/" + id + "/unarchive", { method: "PUT" });
+        if (!res.ok) throw new Error("unarchive failed");
         return res.json();
     }
 
@@ -274,7 +289,13 @@
         if (newForm) newForm.style.display = "flex";
     };
 
-    window.showSavedDocsList = async function () {
+    // Renders the one shared list panel — used for both the normal
+    // "सेव्ड दस्तावेज़" list and the "आर्काइव" list (same look/element,
+    // just a different data source and a different per-item action
+    // button: archive vs restore). Each item still opens on click same
+    // as before; the action button sits inside the same row and stops
+    // the click from bubbling up to that open-on-click handler.
+    async function renderDocListPanel(archived, actionLabel, actionFn) {
         const newForm = document.getElementById("landing-new-form");
         const listEl = document.getElementById("landing-saved-list");
         if (newForm) newForm.style.display = "none";
@@ -282,21 +303,59 @@
         listEl.style.display = "block";
         listEl.innerHTML = "लोड हो रहा है...";
         try {
-            const docs = await apiListDocuments();
+            const docs = await apiListDocuments(archived);
             if (!docs.length) {
-                listEl.innerHTML = "<p>कोई सेव्ड दस्तावेज़ नहीं मिला।</p>";
+                listEl.innerHTML = "<p>" + (archived ? "आर्काइव खाली है।" : "कोई सेव्ड दस्तावेज़ नहीं मिला।") + "</p>";
                 return;
             }
             listEl.innerHTML = docs
                 .map(
                     (d) =>
                         '<div class="landing-doc-item" onclick="openFromLanding(\'' + d._id + '\')">' +
-                        (d.title || "बिना नाम") +
-                        ' <span class="landing-doc-date">(' + new Date(d.updatedAt).toLocaleDateString("hi-IN") + ")</span></div>"
+                            '<span class="landing-doc-title">' + (d.title || "बिना नाम") +
+                            ' <span class="landing-doc-date">(' + new Date(d.updatedAt).toLocaleDateString("hi-IN") + ")</span></span>" +
+                            '<button class="landing-doc-action-btn" onclick="event.stopPropagation(); ' +
+                                actionFn + "('" + d._id + "')\">" + actionLabel + "</button>" +
+                        "</div>"
                 )
                 .join("");
         } catch (e) {
             listEl.innerHTML = "<p>सूची लाने में समस्या हुई।</p>";
+        }
+    }
+
+    window.showSavedDocsList = function () {
+        renderDocListPanel(false, "🗄️ आर्काइव", "archiveDocument");
+    };
+
+    // "काम नहीं है अभी, शायद भविष्य में काम पड़े" वाले दस्तावेज़ों की
+    // अलग सूची — होमपेज पर सेव्ड के बगल में तीसरा बटन।
+    window.showArchivedDocsList = function () {
+        renderDocListPanel(true, "♻️ वापस लाएँ", "unarchiveDocument");
+    };
+
+    // Saved → Archive. Only flips the flag on the backend — nothing
+    // about the document's content/title/settings changes, and it's
+    // never deleted. Refreshes both this list (the doc should drop
+    // out of it now) and the toolbar's document dropdown.
+    window.archiveDocument = async function (id) {
+        try {
+            await apiArchiveDocument(id);
+            window.showSavedDocsList();
+            refreshDocList();
+        } catch (e) {
+            alert("आर्काइव करने में समस्या हुई");
+        }
+    };
+
+    // Archive → Saved (the reverse move).
+    window.unarchiveDocument = async function (id) {
+        try {
+            await apiUnarchiveDocument(id);
+            window.showArchivedDocsList();
+            refreshDocList();
+        } catch (e) {
+            alert("वापस लाने में समस्या हुई");
         }
     };
 
