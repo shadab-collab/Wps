@@ -174,11 +174,65 @@
         return stripInvisible(str).trim() === "[" || stripInvisible(str).trim() === "]";
     }
 
+    // Math ($...$ / $$...$$) is set aside BEFORE the Markdown pass and
+    // restored afterwards, so a "*" or "_" inside a formula (2^*, x_1 + y_1)
+    // can never be mistaken for bold/italic markup.
     function inlineMarkdown(text) {
-        let out = escapeHtml(text);
+        const saved = [];
+        const shielded = text.replace(/\$\$[^$]+\$\$|\$[^$\n]+\$/g, function (m) {
+            saved.push(m);
+            return "\u0007" + (saved.length - 1) + "\u0008";
+        });
+        let out = escapeHtml(shielded);
         out = out.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
         out = out.replace(/\*(.+?)\*/g, "<i>$1</i>");
         out = out.replace(/(^|[^\w])_(.+?)_([^\w]|$)/g, "$1<i>$2</i>$3");
+        return out.replace(/\u0007(\d+)\u0008/g, function (m, i) {
+            return escapeHtml(saved[Number(i)]);
+        });
+    }
+
+    /* ------------------------------------------------
+       MATH DELIMITER NORMALISATION
+       NotebookLM / Gemini / ChatGPT write math as \( ... \), \[ ... \]
+       — and NotebookLM's plain-text export doubles the backslashes:
+       \\( ... \\), \\[ ... \\]. The editor only understands $...$ and
+       $$...$$, so everything is converted to that one form here, before
+       any other paste processing looks at the text.
+    ------------------------------------------------ */
+    function fixMathBody(body) {
+        let s = body.replace(/\s*\n\s*/g, " ").trim();
+        s = s.replace(/\\\\(?=[A-Za-z])/g, "\\");            // "\\text" -> "\text"
+        s = s.replace(/<->/g, "\\leftrightarrow ");
+        s = s.replace(/(^|[^\\<-])->/g, "$1\\rightarrow ");
+        s = s.replace(/(^|[^\\<=])=>/g, "$1\\Rightarrow ");
+        return s;
+    }
+
+    function normalizeMathDelimiters(text) {
+        if (!text || text.indexOf("\\") === -1) return text;
+        const NO_BLANK = "((?:(?!\\n[ \\t]*\\n)[\\s\\S])*?)";
+
+        // display: \[ ... \]  /  \\[ ... \\]
+        let out = text.replace(new RegExp("\\\\{1,2}\\[" + NO_BLANK + "\\\\{1,2}\\]", "g"), function (m, body, offset, whole) {
+            const before = whole.slice(0, offset);
+            const after = whole.slice(offset + m.length);
+            const prefix = before.slice(before.lastIndexOf("\n") + 1);
+            const nl = after.indexOf("\n");
+            const suffix = nl === -1 ? after : after.slice(0, nl);
+            // Alone on its line it is a real (centred) display equation;
+            // anywhere else — inside a sentence, or followed by a source
+            // marker like "[2]" — it stays inline so nothing is left
+            // hanging on a line by itself.
+            const standalone = /^\s*$/.test(prefix) && /^\s*$/.test(suffix);
+            const b = fixMathBody(body);
+            return standalone ? "$$" + b + "$$" : "$" + b + "$";
+        });
+
+        // inline: \( ... \)  /  \\( ... \\)
+        out = out.replace(new RegExp("\\\\{1,2}\\(" + NO_BLANK + "\\\\{1,2}\\)", "g"), function (m, body) {
+            return "$" + fixMathBody(body) + "$";
+        });
         return out;
     }
 
@@ -288,7 +342,7 @@
     }
 
     function cleanPasteToParagraphs(text) {
-        const lines = text.replace(/\r\n/g, "\n").split("\n");
+        const lines = normalizeMathDelimiters(text.replace(/\r\n/g, "\n")).split("\n");
         const htmlParts = [];
         let listType = null; // "ul"/"ol" currently being collected, or null
         let listItems = []; // inline content (no <li> wrapper) collected so far
@@ -345,6 +399,30 @@
             if (isBlank(lines[i]) || isStrayMathBracketLine(lines[i])) { i++; continue; } // drop blank lines (incl. invisible-char-only) and orphaned "\[...\]" delimiter brackets
             const trimmed = lines[i].trim();
 
+            // "---" / "***" on its own line is a divider, not text.
+            if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+                flushList();
+                htmlParts.push("<hr>");
+                i++;
+                continue;
+            }
+
+            // An indented line right under a list item is that item's own
+            // second line (e.g. the answer under a numbered question) —
+            // keep it inside the item as a line break instead of turning
+            // it into a separate paragraph. This is also how a <br> inside
+            // an item survives the double-tap / auto-normalise round trip.
+            if (
+                listType && listItems.length &&
+                /^(?: {2,}|\t)\S/.test(lines[i]) &&
+                !isTableRow(trimmed) &&
+                !/^([-*]|\d+[.)])\s+/.test(trimmed)
+            ) {
+                listItems[listItems.length - 1].html += "<br>" + inlineMarkdown(trimmed);
+                i++;
+                continue;
+            }
+
             if (isTableRow(trimmed)) {
                 flushList();
                 const rows = [];
@@ -393,7 +471,7 @@
     function sanitizePastedHtml(rawHtml) {
         const temp = document.createElement("div");
         temp.innerHTML = rawHtml;
-        temp.querySelectorAll("script, style, meta, link").forEach((el) => el.remove());
+        temp.querySelectorAll("script, style, meta, link, noscript, template").forEach((el) => el.remove());
 
         // Some apps encode bold/italic as inline CSS on a <span>/<font>
         // wrapper instead of using <b>/<strong>/<i>/<em> tags — this
@@ -409,21 +487,68 @@
             return inner;
         }
 
+        // Gemini / NotebookLM / ChatGPT copy their formulas as rendered
+        // KaTeX markup: a hidden MathML copy (with the ORIGINAL LaTeX in an
+        // <annotation>) plus dozens of visual glyph <span>s. Reading the
+        // text of all that is what produced "A", "=", "{", "1" ... one per
+        // line, followed by the formula a second time. The only thing worth
+        // keeping is the annotation — the real LaTeX source.
+        function texFromMathNode(node) {
+            const dm = node.getAttribute && node.getAttribute("data-math");
+            if (dm) return dm;
+            const ann = node.querySelector && node.querySelector('annotation[encoding="application/x-tex"], annotation[encoding="application/x-latex"]');
+            if (ann && ann.textContent) return ann.textContent;
+            return null;
+        }
+
+        function mathToken(tex, display) {
+            const body = fixMathBody(tex);
+            if (!body) return "";
+            return (display ? "$$" : "$") + escapeHtml(body) + (display ? "$$" : "$");
+        }
+
         function cleanNode(node) {
-            if (node.nodeType === 3) return escapeHtml(node.nodeValue);
+            if (node.nodeType === 3) {
+                // HTML collapses newlines/tabs inside text into a single space,
+                // but the page uses white-space:pre-wrap, where a stray "\n"
+                // would show up as a real blank line — so collapse them here.
+                return escapeHtml(normalizeMathDelimiters(node.nodeValue).replace(/[ \t\r\n\f]+/g, " "));
+            }
             if (node.nodeType !== 1) return "";
 
             const tag = node.tagName.toLowerCase();
+            const cls = (node.getAttribute("class") || "");
+
+            // ---- math first: never walk into the glyph spans ----
+            if (/(^|\s)katex-display(\s|$)/.test(cls) || /(^|\s)(math-block|math-display)(\s|$)/.test(cls)) {
+                const tex = texFromMathNode(node);
+                if (tex) return mathToken(tex, true);
+            }
+            if (/(^|\s)(katex|math-inline)(\s|$)/.test(cls) || node.hasAttribute("data-math") || tag === "math") {
+                const tex = texFromMathNode(node);
+                if (tex) {
+                    const display = /(^|\s)math-block(\s|$)/.test(cls) || node.getAttribute("display") === "block";
+                    return mathToken(tex, display);
+                }
+                if (/(^|\s)katex(\s|$)/.test(cls)) return ""; // rendered KaTeX with no source at all — nothing usable
+            }
+            if (/(^|\s)(katex-html|katex-mathml)(\s|$)/.test(cls)) return "";
+
             const inner = Array.from(node.childNodes).map(cleanNode).join("");
 
-            if (/^h[1-6]$/.test(tag)) return "<" + tag + ">" + inner + "</" + tag + ">";
+            if (/^h[1-6]$/.test(tag)) return "<" + tag + ">" + inner.trim() + "</" + tag + ">";
             if (tag === "b" || tag === "strong") return "<b>" + inner + "</b>";
             if (tag === "i" || tag === "em") return "<i>" + inner + "</i>";
             if (tag === "u") return "<u>" + inner + "</u>";
             if (tag === "ul") return "<ul>" + inner + "</ul>";
             if (tag === "ol") return "<ol>" + inner + "</ol>";
             if (tag === "li") {
-                const wrapped = applyInlineStyleWrap(node, inner);
+                let wrapped = applyInlineStyleWrap(node, inner).trim();
+                // Gemini wraps each line of an item in its own <p>
+                // ("question" / "उत्तर:"). Inside an item that is just a
+                // line break — turning it into <br> keeps the item's lines
+                // tight and identical to how a plain-text paste is built.
+                wrapped = wrapped.replace(/<\/p>\s*<p>/gi, "<br>").replace(/^<p>/i, "").replace(/<\/p>$/i, "");
                 // Same reasoning as <p> above: a list item that Gemini
                 // padded with only an invisible character/<br> is not
                 // a real bullet — drop it instead of rendering an
@@ -434,10 +559,11 @@
             }
             if (tag === "table") return "<table>" + inner + "</table>";
             if (tag === "tr") return "<tr>" + inner + "</tr>";
-            if (tag === "td") return "<td>" + applyInlineStyleWrap(node, inner) + "</td>";
-            if (tag === "th") return "<th>" + applyInlineStyleWrap(node, inner) + "</th>";
+            if (tag === "td") return "<td>" + applyInlineStyleWrap(node, inner).trim() + "</td>";
+            if (tag === "th") return "<th>" + applyInlineStyleWrap(node, inner).trim() + "</th>";
+            if (tag === "hr") return "<hr>";
             if (tag === "p" || tag === "div") {
-                const wrapped = applyInlineStyleWrap(node, inner);
+                const wrapped = applyInlineStyleWrap(node, inner).trim();
                 // Apps like Gemini insert a blank <p></p> (or a <p>
                 // holding only a stray <br>) between sections purely as
                 // spacing — that becomes a visible empty line once our
@@ -455,6 +581,11 @@
         }
 
         let out = Array.from(temp.childNodes).map(cleanNode).join("").trim();
+        // Whitespace sitting BETWEEN block tags ("</li> <li>") is layout
+        // noise from the source app; under pre-wrap it would render as
+        // extra blank lines between every list item / paragraph.
+        const BLOCK = "(?:ul|ol|li|table|thead|tbody|tr|td|th|p|h[1-6]|hr)";
+        out = out.replace(new RegExp("(</?" + BLOCK + "(?:\\s[^>]*)?>)\\s+(?=</?" + BLOCK + "[\\s>])", "gi"), "$1");
         // Collapse any run of consecutive <br> (line breaks sitting
         // directly between block tags, not inside a paragraph) down to
         // one, and drop empty list items the same way as paragraphs.
@@ -476,6 +607,7 @@
         }
 
         document.execCommand("insertHTML", false, html);
+        armPasteRender();
         const page = closestPage(e.target);
         if (page) {
             // Same tight, no-stray-blank-line cleanup the "खाली पंक्ति
@@ -506,23 +638,11 @@
     }
 
     function safeKatexRender(source, target, displayMode) {
-        // \frac renders numerator/denominator noticeably small in
-        // KaTeX's default "text style" sizing; \dfrac forces the
-        // larger "display style" sizing used in most textbooks/other
-        // editors, without changing anything else about the formula.
-        const enlarged = source.replace(/\\frac(?![a-zA-Z])/g, "\\dfrac");
         try {
-            window.katex.render(enlarged, target, {
+            window.katex.render(window.WPSMath.prepareLatex(source), target, {
                 throwOnError: false,
                 displayMode: displayMode,
-                macros: {
-                    "\\ce": "\\ce",
-                    // AI chat exports often write "\mum" for micrometre
-                    // (meaning \mu m, μm) — that's not a real KaTeX/LaTeX
-                    // command on its own, so without this it shows as a
-                    // red "undefined control sequence" error instead of μm.
-                    "\\mum": "\\mu m"
-                }
+                macros: window.WPSMath.MACROS
             });
         } catch (e) {
             target.textContent = source;
@@ -560,7 +680,8 @@
         span.addEventListener("click", function (e) {
             e.stopPropagation();
             const raw = span.getAttribute("data-latex") || "";
-            const textNode = document.createTextNode(raw);
+            const wrapMark = span.getAttribute("data-display") === "1" ? "$$" : "$";
+            const textNode = document.createTextNode(wrapMark + raw + wrapMark);
             span.replaceWith(textNode);
 
             const range = document.createRange();
@@ -579,15 +700,42 @@
         });
     }
 
-    function renderBlockMath(el, raw) {
-        el.textContent = "";
+    // One place that builds a rendered formula element, so every path
+    // (pasted $..$, $$..$$, whole-line LaTeX, naked LaTeX) produces the
+    // same DOM: <span class="latex-formula" data-latex=".." [data-display]>.
+    function makeFormulaSpan(latex, display) {
         const span = document.createElement("span");
         span.className = "latex-formula";
-        span.setAttribute("data-latex", raw);
-        safeKatexRender(raw, span, true);
+        span.setAttribute("data-latex", latex);
+        if (display) span.setAttribute("data-display", "1");
+        safeKatexRender(latex, span, !!display);
         attachEditToggle(span);
-        el.appendChild(span);
+        return span;
     }
+
+    // A line that starts with an option / item label — "(a)", "(iii)",
+    // "7(i)", "3." — followed by a formula. The label stays ordinary text
+    // and the formula is inline, so it sits left-aligned like the rest of
+    // the page instead of being centred as a display equation.
+    const LABEL_PREFIX_RE = /^((?:\(\s*[A-Za-z]{1,4}\s*\)|[A-Za-z]{1,4}\s*\)|\d{1,3}\s*(?:[.)]|\(\s*[A-Za-z]{1,4}\s*\)))\s+)(\S[\s\S]*)$/;
+
+    function renderBlockMath(el, raw) {
+        const host = el.tagName;
+        const label = LABEL_PREFIX_RE.exec(raw);
+        el.textContent = "";
+        if (label) {
+            el.appendChild(document.createTextNode(label[1]));
+            el.appendChild(makeFormulaSpan(label[2], false));
+            return;
+        }
+        // Inside a list item or table cell a whole-cell formula is just
+        // inline content; only a free-standing paragraph gets centred.
+        const display = !(host === "LI" || host === "TD" || host === "TH");
+        el.appendChild(makeFormulaSpan(raw, display));
+    }
+
+    // $...$  → inline formula      $$...$$ → display (centred) formula
+    const DOLLAR_MATH_RE = /\$\$([^$]+)\$\$|\$([^$]+)\$/g;
 
     function renderInlineMath(el) {
         const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
@@ -603,21 +751,17 @@
         while ((node = walker.nextNode())) targets.push(node);
 
         targets.forEach((textNode) => {
-            const regex = /\$([^$]+)\$/g;
             const text = textNode.nodeValue;
+            DOLLAR_MATH_RE.lastIndex = 0;
             let match, lastIndex = 0, found = false;
             const frag = document.createDocumentFragment();
 
-            while ((match = regex.exec(text)) !== null) {
+            while ((match = DOLLAR_MATH_RE.exec(text)) !== null) {
                 found = true;
                 if (match.index > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-                const span = document.createElement("span");
-                span.className = "latex-formula";
-                span.setAttribute("data-latex", match[1]);
-                safeKatexRender(match[1], span, false);
-                attachEditToggle(span);
-                frag.appendChild(span);
-                lastIndex = regex.lastIndex;
+                const display = match[1] !== undefined;
+                frag.appendChild(makeFormulaSpan((display ? match[1] : match[2]).trim(), display));
+                lastIndex = DOLLAR_MATH_RE.lastIndex;
             }
 
             if (found) {
@@ -627,13 +771,53 @@
         });
     }
 
+    /* ------------------------------------------------
+       LONG FORMULAS
+       KaTeX never breaks a formula by itself, so a long set such as
+       {(-1,-1,-1),(-1,-1,1), ...} runs straight out of its column into
+       the next one. When a rendered formula is wider than the block that
+       holds it, it is re-rendered as several pieces cut at top-level
+       commas, with a line-break opportunity between the pieces.
+    ------------------------------------------------ */
+    const splitLatexAtCommas = window.WPSMath.splitLatexAtCommas;
+
+    function formulaOverflows(span) {
+        if (span.getAttribute("data-display") === "1") {
+            return span.scrollWidth > span.clientWidth + 1;
+        }
+        const host = span.closest("p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote, div");
+        if (!host) return false;
+        const r = span.getBoundingClientRect();
+        const h = host.getBoundingClientRect();
+        return r.width > 0 && r.right > h.right + 1.5;
+    }
+
+    function wrapOverflowingFormulas(page) {
+        const spans = Array.from(page.querySelectorAll(".latex-formula")).filter(
+            (sp) => sp.getAttribute("data-wrapped") !== "1" && sp.getAttribute("data-wrap-checked") !== "1"
+        );
+        if (!spans.length) return;
+        // read all measurements first (one layout), then write
+        const tooWide = spans.filter(formulaOverflows);
+        spans.forEach((sp) => sp.setAttribute("data-wrap-checked", "1"));
+        tooWide.forEach((sp) => {
+            const latex = sp.getAttribute("data-latex") || "";
+            const chunks = splitLatexAtCommas(latex);
+            if (!chunks) return;
+            sp.textContent = "";
+            chunks.forEach((chunk, i) => {
+                const part = document.createElement("span");
+                part.className = "lf-part";
+                safeKatexRender(chunk, part, false);
+                sp.appendChild(part);
+                if (i < chunks.length - 1) sp.appendChild(document.createElement("wbr"));
+            });
+            sp.setAttribute("data-wrapped", "1");
+        });
+    }
+
     function appendMathSpan(frag, latex) {
-        const span = document.createElement("span");
-        span.className = "latex-formula";
-        span.setAttribute("data-latex", latex);
-        safeKatexRender(latex, span, false);
-        attachEditToggle(span);
-        frag.appendChild(span);
+        frag.appendChild(makeFormulaSpan(latex, false));
     }
 
     // Characters LaTeX commands are normally built from. A run made
@@ -675,22 +859,8 @@
         return { sup: exp, restAfter: str.slice(m[0].length) };
     }
 
-    // Wraps every bare (not already inside \text{...}) run of
-    // Devanagari characters in the given string with \text{...}. Used
-    // only on a string we already know is a complete LaTeX command's
-    // arguments (see autoWrapDevanagariInLatexRuns below), where any
-    // Devanagari present MUST be escaped into text mode or KaTeX has no
-    // glyphs for it at all.
-    function wrapBareDevanagari(str) {
-        const kept = [];
-        let out = str.replace(/\\text\{[^}]*\}/g, (m) => {
-            kept.push(m);
-            return "\u0003" + (kept.length - 1) + "\u0004";
-        });
-        out = out.replace(/[\u0900-\u097F]+(?:[ \u0900-\u097F]*[\u0900-\u097F])?/g, (m) => "\\text{" + m + "}");
-        out = out.replace(/\u0003(\d+)\u0004/g, (m, idx) => kept[Number(idx)]);
-        return out;
-    }
+    // (shared with the PDF/image backend — see math-shared.js)
+    const wrapBareDevanagari = window.WPSMath.wrapBareDevanagari;
 
     // AI chat exports often splice a Hindi word directly inside a LaTeX
     // command's braces with no \text{} at all — e.g.
@@ -939,10 +1109,19 @@
     }
 
 
+    // After a paste the caret sits at the very end of what was pasted, so
+    // the last pasted line is "the block being typed in" and would stay raw
+    // LaTeX until the user tapped elsewhere. A paste is a finished action,
+    // not typing — so for one render pass that block is rendered too, and
+    // the caret is put back at its end.
+    let renderActiveOnce = false;
+
     function renderMathInPage(page) {
         window.WPSEditor.attachMarkdownBlocksInPage(page);
+        upgradeImagesInPage(page);
         if (!autoRenderEnabled || !window.katex) return;
-        const skip = document.activeElement === page ? activeBlockIn(page) : null;
+        const active = document.activeElement === page ? activeBlockIn(page) : null;
+        const skip = renderActiveOnce ? null : active;
         const blocks = page.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th");
         blocks.forEach((el) => {
             if (el === skip) return;
@@ -952,11 +1131,8 @@
             if (!hasFormula) {
                 const raw = el.textContent.trim();
                 if (!raw) return;
-                if (isPureLatex(raw)) {
+                if (raw.indexOf("$") === -1 && isPureLatex(raw)) {
                     renderBlockMath(el, raw);
-                    return;
-                } else if (raw.indexOf("$") !== -1) {
-                    renderInlineMath(el);
                     return;
                 }
             } else {
@@ -964,6 +1140,11 @@
                 // document) — make sure it's actually clickable
                 el.querySelectorAll(".latex-formula").forEach(attachEditToggle);
             }
+
+            // $...$ / $$...$$ — also when the block already holds other
+            // rendered formulas (a formula tapped open for editing turns
+            // back into "$...$" text and must re-render next to them).
+            if (el.textContent.indexOf("$") !== -1) renderInlineMath(el);
 
             // Naked-latex (no $ delimiters) is always safe to re-check,
             // even when the block already has OTHER rendered formulas
@@ -979,15 +1160,31 @@
             }
             renderPlainWordFractionsInBlock(el);
         });
+        wrapOverflowingFormulas(page);
+        if (renderActiveOnce && active) {
+            const target = active.isConnected ? active : page.lastElementChild;
+            if (target) {
+                const r = document.createRange();
+                r.selectNodeContents(target);
+                r.collapse(false);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(r);
+            }
+        }
     }
 
+    function armPasteRender() { renderActiveOnce = true; }
+    function disarmPasteRender() { renderActiveOnce = false; }
+
     /* ==================================================
-       6. IMAGE INSERT + RESIZE
-       Images are wrapped in a <div class="img-wrap"> so a resize
-       handle can sit on the corner without becoming part of the
-       image itself. The wrapper is block-level (its own <p>-like
-       line), which is what makes the next line start below the
-       image instead of text wrapping beside it.
+       6. IMAGE INSERT + SIZE PANEL
+       Images sit in a <div class="img-wrap"> (its own block line).
+       There is no drag handle any more: tapping an image opens a small
+       panel to set width / height in mm, lock or change the aspect
+       ratio, choose how the picture fills its box, align it, or delete
+       it. The size lives on the <img> itself (style width/height in mm),
+       so saving, printing and PDF export need nothing extra.
     ================================================== */
     let activePageForInsert = null;
 
@@ -999,50 +1196,269 @@
         }
     }
 
-    function attachResizeHandle(wrap, img) {
-        const handle = document.createElement("span");
-        handle.className = "img-resize-handle no-print";
-        wrap.appendChild(handle);
+    const imageWrapReady = new WeakSet();
+    let selectedWrap = null;
+    let imgPanelEl = null;
 
-        let startX = 0;
-        let startWidth = 0;
-
-        function onMove(clientX) {
-            const delta = clientX - startX;
-            const newWidth = Math.max(40, startWidth + delta);
-            const maxWidth = wrap.parentElement ? wrap.parentElement.clientWidth : newWidth;
-            img.style.width = Math.min(newWidth, maxWidth) + "px";
-        }
-
-        function mouseMove(e) { onMove(e.clientX); }
-        function mouseUp() {
-            document.removeEventListener("mousemove", mouseMove);
-            document.removeEventListener("mouseup", mouseUp);
-            window.WPSEditor.scheduleRepagination();
-        }
-        function touchMove(e) { onMove(e.touches[0].clientX); e.preventDefault(); }
-        function touchEnd() {
-            document.removeEventListener("touchmove", touchMove);
-            document.removeEventListener("touchend", touchEnd);
-            window.WPSEditor.scheduleRepagination();
-        }
-
-        handle.addEventListener("mousedown", (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            startX = e.clientX;
-            startWidth = img.getBoundingClientRect().width;
-            document.addEventListener("mousemove", mouseMove);
-            document.addEventListener("mouseup", mouseUp);
+    // Keeps old saved documents working: strips the retired drag handle
+    // and any leftover "selected" outline, and wires the tap listener.
+    function upgradeImagesInPage(page) {
+        page.querySelectorAll(".img-wrap").forEach((wrap) => {
+            wrap.querySelectorAll(".img-resize-handle").forEach((h) => h.remove());
+            wrap.contentEditable = "false";
+            if (wrap !== selectedWrap) wrap.classList.remove("img-selected");
+            if (!imageWrapReady.has(wrap)) {
+                imageWrapReady.add(wrap);
+                wrap.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    selectImage(wrap);
+                });
+            }
         });
+    }
 
-        handle.addEventListener("touchstart", (e) => {
-            e.stopPropagation();
-            startX = e.touches[0].clientX;
-            startWidth = img.getBoundingClientRect().width;
-            document.addEventListener("touchmove", touchMove, { passive: false });
-            document.addEventListener("touchend", touchEnd);
+    // Converts between CSS px and mm the same way the layout does, so it
+    // stays right at any zoom level.
+    function pxPerMm(page) {
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;visibility:hidden;width:100mm;height:1px;";
+        page.appendChild(probe);
+        const v = probe.offsetWidth / 100;
+        probe.remove();
+        return v || 3.7795;
+    }
+
+    function columnWidthPx(page) {
+        const cs = getComputedStyle(page);
+        const count = parseInt(cs.columnCount, 10) || 1;
+        const gap = parseFloat(cs.columnGap) || 0;
+        const inner = page.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        return (inner - gap * (count - 1)) / count;
+    }
+
+    const RATIO_CHOICES = [
+        ["orig", "मूल अनुपात"],
+        ["1", "1 : 1"],
+        [String(4 / 3), "4 : 3"],
+        [String(3 / 4), "3 : 4"],
+        [String(16 / 9), "16 : 9"],
+        [String(9 / 16), "9 : 16"],
+        [String(1 / 1.4142), "A4 खड़ा"]
+    ];
+
+    function buildImagePanel() {
+        const el = document.createElement("div");
+        el.id = "img-panel";
+        el.className = "no-print";
+        el.hidden = true;
+        el.innerHTML =
+            '<div class="ip-row ip-head"><b>🖼️ चित्र का आकार</b><button type="button" data-act="close" class="ip-x">✕</button></div>' +
+            '<div class="ip-row">' +
+                '<label>चौड़ाई <input id="ip-w" type="number" min="5" step="1" inputmode="decimal"> मिमी</label>' +
+                '<label>ऊँचाई <input id="ip-h" type="number" min="5" step="1" inputmode="decimal"> मिमी</label>' +
+            '</div>' +
+            '<div class="ip-row">' +
+                '<label class="ip-check"><input id="ip-lock" type="checkbox" checked> अनुपात लॉक</label>' +
+                '<select id="ip-ratio">' + RATIO_CHOICES.map((r) => '<option value="' + r[0] + '">' + r[1] + "</option>").join("") + "</select>" +
+                '<select id="ip-fit"><option value="fill">खींचकर भरें</option><option value="cover">काटकर भरें</option><option value="contain">पूरा दिखाएँ</option></select>' +
+            '</div>' +
+            '<div class="ip-row ip-btns">' +
+                '<button type="button" data-act="col">कॉलम भर</button>' +
+                '<button type="button" data-act="half">आधा</button>' +
+                '<button type="button" data-act="orig">मूल आकार</button>' +
+                '<button type="button" data-act="al-l" title="बाएँ">⬅</button>' +
+                '<button type="button" data-act="al-c" title="बीच में">⬌</button>' +
+                '<button type="button" data-act="al-r" title="दाएँ">➡</button>' +
+                '<button type="button" data-act="del" class="ip-del">🗑 हटाएँ</button>' +
+            '</div>';
+        document.body.appendChild(el);
+
+        // keep taps inside the panel from moving the page caret or
+        // being read as "tap elsewhere"
+        ["mousedown", "touchstart", "click"].forEach((ev) =>
+            el.addEventListener(ev, (e) => e.stopPropagation(), { passive: true })
+        );
+
+        const wInput = el.querySelector("#ip-w");
+        const hInput = el.querySelector("#ip-h");
+        const lock = el.querySelector("#ip-lock");
+        const ratioSel = el.querySelector("#ip-ratio");
+        const fitSel = el.querySelector("#ip-fit");
+
+        wInput.addEventListener("input", () => onDimInput("w"));
+        hInput.addEventListener("input", () => onDimInput("h"));
+        ratioSel.addEventListener("change", onRatioChange);
+        fitSel.addEventListener("change", () => {
+            const img = currentImg();
+            if (!img) return;
+            img.style.objectFit = fitSel.value;
+            afterImageChange();
         });
+        el.addEventListener("click", (e) => {
+            const btn = e.target.closest("button[data-act]");
+            if (btn) onPanelAction(btn.getAttribute("data-act"));
+        });
+        return el;
+    }
+
+    function currentImg() {
+        return selectedWrap && selectedWrap.isConnected ? selectedWrap.querySelector("img") : null;
+    }
+
+    function readImageMm() {
+        const img = currentImg();
+        if (!img) return null;
+        const page = closestPage(img);
+        const k = pxPerMm(page);
+        const cs = getComputedStyle(img);   // CSS px: fractional and unaffected by the zoom transform
+        return { w: (parseFloat(cs.width) || img.offsetWidth) / k, h: (parseFloat(cs.height) || img.offsetHeight) / k, k: k, page: page, img: img };
+    }
+
+    function writeImageMm(wMm, hMm) {
+        const info = readImageMm();
+        if (!info) return;
+        const maxW = columnWidthPx(info.page) / info.k;
+        if (wMm > maxW) { hMm = hMm * (maxW / wMm); wMm = maxW; }   // never wider than the column
+        wMm = Math.max(5, wMm);
+        hMm = Math.max(5, hMm);
+        info.img.style.width = wMm.toFixed(1) + "mm";
+        info.img.style.height = hMm.toFixed(1) + "mm";
+        syncPanelFields();
+        afterImageChange();
+    }
+
+    function currentRatio() {
+        const sel = imgPanelEl.querySelector("#ip-ratio").value;
+        const img = currentImg();
+        if (sel === "orig") return img && img.naturalHeight ? img.naturalWidth / img.naturalHeight : 1;
+        return parseFloat(sel) || 1;
+    }
+
+    function syncPanelFields() {
+        const info = readImageMm();
+        if (!info || !imgPanelEl) return;
+        imgPanelEl.querySelector("#ip-w").value = Math.round(info.w * 10) / 10;
+        imgPanelEl.querySelector("#ip-h").value = Math.round(info.h * 10) / 10;
+        imgPanelEl.querySelector("#ip-fit").value = info.img.style.objectFit || "fill";
+    }
+
+    function onDimInput(which) {
+        const w = parseFloat(imgPanelEl.querySelector("#ip-w").value);
+        const h = parseFloat(imgPanelEl.querySelector("#ip-h").value);
+        const locked = imgPanelEl.querySelector("#ip-lock").checked;
+        const info = readImageMm();
+        if (!info) return;
+        if (which === "w" && w > 0) {
+            const r = locked ? (info.w / info.h) : 0;
+            writeImageMm(w, locked ? w / r : (h > 0 ? h : info.h));
+        } else if (which === "h" && h > 0) {
+            const r = locked ? (info.w / info.h) : 0;
+            writeImageMm(locked ? h * r : (w > 0 ? w : info.w), h);
+        }
+    }
+
+    function onRatioChange() {
+        const info = readImageMm();
+        if (!info) return;
+        const r = currentRatio();
+        // a ratio different from the picture's own would squash it, so
+        // crop-to-fill is the sensible default there
+        const sel = imgPanelEl.querySelector("#ip-ratio").value;
+        info.img.style.objectFit = sel === "orig" ? "fill" : "cover";
+        writeImageMm(info.w, info.w / r);
+    }
+
+    function onPanelAction(act) {
+        const info = readImageMm();
+        if (act === "close") { closeImagePanel(); return; }
+        if (!info) return;
+        const maxW = columnWidthPx(info.page) / info.k;
+        if (act === "col") writeImageMm(maxW, maxW / (info.w / info.h));
+        else if (act === "half") writeImageMm(maxW / 2, (maxW / 2) / (info.w / info.h));
+        else if (act === "orig") {
+            const nw = info.img.naturalWidth / info.k, nh = info.img.naturalHeight / info.k;
+            imgPanelEl.querySelector("#ip-ratio").value = "orig";
+            info.img.style.objectFit = "fill";
+            writeImageMm(nw, nh);
+        } else if (act.indexOf("al-") === 0) {
+            selectedWrap.setAttribute("data-align", act === "al-l" ? "left" : act === "al-r" ? "right" : "center");
+            afterImageChange();
+        } else if (act === "del") {
+            const wrap = selectedWrap;
+            closeImagePanel();
+            if (wrap && wrap.isConnected) { wrap.remove(); window.WPSEditor.scheduleRepagination(); }
+        }
+    }
+
+    function afterImageChange() {
+        window.WPSEditor.scheduleRepagination();
+    }
+
+    function selectImage(wrap) {
+        if (!imgPanelEl) imgPanelEl = buildImagePanel();
+        if (selectedWrap && selectedWrap !== wrap) selectedWrap.classList.remove("img-selected");
+        selectedWrap = wrap;
+        wrap.classList.add("img-selected");
+        imgPanelEl.hidden = false;
+        // images from older documents may still carry a % width — convert
+        // it to real mm the first time the panel opens
+        const info = readImageMm();
+        if (info && !/mm$/.test(info.img.style.width)) {
+            info.img.style.width = (info.w).toFixed(1) + "mm";
+            info.img.style.height = (info.h).toFixed(1) + "mm";
+            info.img.style.objectFit = info.img.style.objectFit || "fill";
+        }
+        imgPanelEl.querySelector("#ip-ratio").value = "orig";
+        syncPanelFields();
+    }
+
+    function closeImagePanel() {
+        if (selectedWrap) selectedWrap.classList.remove("img-selected");
+        selectedWrap = null;
+        if (imgPanelEl) imgPanelEl.hidden = true;
+    }
+
+    // Called by the touch-gesture layer (zoom-keyboard.js) on a clean
+    // tap: returns true when the tap landed on an image (so the caller
+    // skips its own caret placement).
+    function handleImageTap(target) {
+        const wrap = target && target.closest ? target.closest(".img-wrap") : null;
+        if (wrap) { selectImage(wrap); return true; }
+        if (selectedWrap && !(target && target.closest && target.closest("#img-panel"))) closeImagePanel();
+        return false;
+    }
+
+    document.addEventListener("click", function (e) {
+        if (!selectedWrap) return;
+        if (e.target.closest && (e.target.closest(".img-wrap") || e.target.closest("#img-panel"))) return;
+        closeImagePanel();
+    });
+
+    // Large photos would bloat the saved document and the PDF request,
+    // so they are scaled down (longest side 1600px) when inserted.
+    function shrinkImage(dataUrl, done) {
+        const im = new Image();
+        im.onload = function () {
+            const w = im.naturalWidth, h = im.naturalHeight;
+            const scale = Math.min(1, 1600 / Math.max(w, h));
+            if (scale === 1 && dataUrl.length < 350000) { done(dataUrl); return; }
+            const c = document.createElement("canvas");
+            c.width = Math.max(1, Math.round(w * scale));
+            c.height = Math.max(1, Math.round(h * scale));
+            const ctx = c.getContext("2d");
+            const isPng = /^data:image\/png/i.test(dataUrl);
+            if (!isPng) { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); }
+            ctx.drawImage(im, 0, 0, c.width, c.height);
+            let out = isPng ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.86);
+            if (isPng && out.length > 900000) {
+                ctx.globalCompositeOperation = "destination-over";
+                ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+                out = c.toDataURL("image/jpeg", 0.86);
+            }
+            done(out.length < dataUrl.length ? out : dataUrl);
+        };
+        im.onerror = function () { done(dataUrl); };
+        im.src = dataUrl;
     }
 
     function insertImageAtCaret(page, dataUrl) {
@@ -1055,7 +1471,6 @@
         img.style.width = "60%";
 
         wrap.appendChild(img);
-        attachResizeHandle(wrap, img);
 
         const sel = window.getSelection();
         let inserted = false;
@@ -1085,7 +1500,9 @@
         sel2.addRange(range);
         page.focus({ preventScroll: true });
 
-        window.WPSEditor.scheduleRepagination();
+        upgradeImagesInPage(page);
+        const open = function () { selectImage(wrap); window.WPSEditor.scheduleRepagination(); };
+        if (img.complete && img.naturalWidth) open(); else img.addEventListener("load", open, { once: true });
     }
 
     function getActivePage() {
@@ -1102,7 +1519,7 @@
             const file = input.files && input.files[0];
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = () => insertImageAtCaret(page, reader.result);
+            reader.onload = () => shrinkImage(reader.result, (small) => insertImageAtCaret(page, small));
             reader.readAsDataURL(file);
         });
         input.click();
@@ -1127,6 +1544,12 @@
         renderMathInPage: renderMathInPage,
         handlePaste: handlePaste,
         rememberActivePage: rememberActivePage,
+        handleImageTap: handleImageTap,
+        closeImagePanel: closeImagePanel,
+        wrapOverflowingFormulas: wrapOverflowingFormulas,
+        armPasteRender: armPasteRender,
+        disarmPasteRender: disarmPasteRender,
+        normalizeMathDelimiters: normalizeMathDelimiters,
         getActivePage: getActivePage,
         cleanPasteToParagraphs: cleanPasteToParagraphs,
         sanitizePastedHtml: sanitizePastedHtml,

@@ -1,0 +1,13 @@
+इन फ़ाइलों को अपने project में उसी जगह (उसी नाम से) बदल दें / जोड़ दें, फिर GitHub पर push करें ताकि Render दोबारा deploy करे।
+
+नई फ़ाइलें (पहले नहीं थीं):
+  public/math-shared.js
+  routes/render-html.js
+
+बदली हुई फ़ाइलें:
+  public/editor-core.js, editor-extras.js, pagination.js, zoom-keyboard.js,
+  page-export.js, style.css, index.html
+  routes/export.js, routes/export-image.js
+  server.js, package.json   (package.json में "katex" जुड़ा है — Render पर deploy के समय अपने-आप install होगा)
+
+.env, README, Dockerfile, models/, routes/documents.js — इनमें कोई बदलाव नहीं।

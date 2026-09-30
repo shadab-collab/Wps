@@ -1,55 +1,46 @@
 const express = require("express");
 const router = express.Router();
-const fs = require("fs");
-const path = require("path");
 const puppeteer = require("puppeteer-core");
+const { renderFormulas, documentShell, exclusive, LAUNCH_ARGS } = require("./render-html");
 
-// Reuses the editor's own style.css (must exist in backend/public/) so
-// the exported PDF matches the on-screen A4 layout exactly — margins,
-// columns, fonts, page numbers, everything.
-const styleCssPath = path.join(__dirname, "..", "public", "style.css");
-
+// The exported PDF reuses the editor's own style.css, so margins, columns,
+// fonts and page numbers match the on-screen A4 layout exactly.
 router.post("/", async (req, res) => {
-    const { html, cssVars } = req.body;
+    const { html, cssVars } = req.body || {};
     if (!html) {
         return res.status(400).json({ error: "कोई content नहीं मिला" });
     }
 
-    let styleCss = "";
     try {
-        styleCss = fs.readFileSync(styleCssPath, "utf8");
-    } catch (e) {
-        // style.css missing from public/ — PDF will still generate, just unstyled
-    }
+        const pdfBuffer = await exclusive(async () => {
+            const fullHtml = documentShell(
+                '<div class="editor-container" id="pages-container">' + renderFormulas(html) + "</div>",
+                cssVars
+            );
 
-    const fullHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
-<style>${styleCss}</style>
-<style>
-    body, .page { font-family: 'Noto Sans', 'Noto Sans Devanagari', sans-serif !important; }
-</style>
-<style>:root{${cssVars || ""}}</style>
-</head>
-<body>
-<div class="editor-container" id="pages-container">${html}</div>
-</body>
-</html>`;
+            let browser;
+            try {
+                browser = await puppeteer.launch({
+                    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+                    headless: "new",
+                    args: LAUNCH_ARGS,
+                    timeout: 60000
+                });
+                const page = await browser.newPage();
+                page.setDefaultTimeout(180000);
+                page.setDefaultNavigationTimeout(180000);
+                // everything is inlined — never wait for (or fetch) anything external
+                await page.setRequestInterception(true);
+                page.on("request", (r) => (/^(data:|about:)/.test(r.url()) ? r.continue() : r.abort()));
 
-    let browser;
-    try {
-        browser = await puppeteer.launch({
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            headless: "new",
-            args: ["--no-sandbox", "--disable-setuid-sandbox"]
+                await page.setContent(fullHtml, { waitUntil: "load", timeout: 180000 });
+                await page.evaluate("document.fonts.ready");
+                await page.emulateMediaType("print");
+                return await page.pdf({ format: "A4", printBackground: true, timeout: 180000 });
+            } finally {
+                if (browser) await browser.close().catch(() => {});
+            }
         });
-        const page = await browser.newPage();
-        await page.setContent(fullHtml, { waitUntil: "networkidle0" });
-        await page.evaluateHandle("document.fonts.ready");
-        await page.emulateMediaType("print");
-        const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
 
         res.set({
             "Content-Type": "application/pdf",
@@ -58,9 +49,7 @@ router.post("/", async (req, res) => {
         res.send(pdfBuffer);
     } catch (err) {
         console.error("PDF export error:", err);
-        res.status(500).json({ error: "PDF बनाने में समस्या हुई" });
-    } finally {
-        if (browser) await browser.close();
+        res.status(500).json({ error: "PDF बनाने में समस्या हुई", detail: String((err && err.message) || err) });
     }
 });
 

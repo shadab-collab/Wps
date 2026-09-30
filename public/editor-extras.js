@@ -122,6 +122,7 @@
             "</div><p><br></p>";
 
         document.execCommand("insertHTML", false, html);
+        if (window.WPSEditor.armPasteRender) window.WPSEditor.armPasteRender();
         const sel = window.getSelection();
         if (sel.rangeCount > 0) {
             const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);
@@ -375,25 +376,44 @@
     // readers) inside every formula it renders, and plain .textContent
     // would pull that in too, duplicating the formula when round-
     // tripped back to raw Markdown.
-    function cleanTextForMarkdown(el) {
+    // keepBreaks=true (list items only): a <br> becomes a real new line
+    // (indented, so the parser reads it back as "same item, next line")
+    // instead of being flattened into a space — that flattening is what
+    // used to glue "question" and "answer" into one line. Table cells and
+    // headings must stay on one source line, so they pass false.
+    function cleanTextForMarkdown(el, keepBreaks) {
         let result = "";
         el.childNodes.forEach((node) => {
             if (node.nodeType === 3) {
                 result += node.nodeValue;
             } else if (node.nodeType === 1) {
                 if (node.classList && node.classList.contains("latex-formula")) {
-                    result += node.getAttribute("data-latex") || "";
+                    // Keep the $ / $$ delimiters so the formula comes back
+                    // as the same kind of formula (inline vs display).
+                    const mark = node.getAttribute("data-display") === "1" ? "$$" : "$";
+                    result += mark + (node.getAttribute("data-latex") || "") + mark;
                 } else if (node.tagName === "BR") {
-                    // A <br> is a real line break in the original —
-                    // gluing the words on either side together with no
-                    // separator at all makes the text unreadable and,
-                    // for something like "प्रश्न...<br>उत्तर:...", can
-                    // even fuse two sentences into one illegible run.
-                    // A single space keeps them as separate words.
-                    if (result && !/\s$/.test(result)) result += " ";
+                    if (keepBreaks) {
+                        result = result.replace(/[ \t]+$/, "");
+                        if (result && !/\n\s*$/.test(result)) result += "\n   ";
+                    } else if (result && !/\s$/.test(result)) {
+                        result += " ";
+                    }
+                } else if (keepBreaks && (node.tagName === "UL" || node.tagName === "OL")) {
+                    // a list nested inside an item: one indented "• text"
+                    // line per sub-item (a bullet char, NOT "-"/"1.", which
+                    // the parser would read as new top-level items)
+                    Array.from(node.children).forEach((sub) => {
+                        const t = cleanTextForMarkdown(sub, true).trim();
+                        if (t) {
+                            result = result.replace(/[ \t]+$/, "");
+                            if (result && !/\n\s*$/.test(result)) result += "\n   ";
+                            result += "\u2022 " + t;
+                        }
+                    });
                 } else {
                     const before = result;
-                    result += cleanTextForMarkdown(node);
+                    result += cleanTextForMarkdown(node, keepBreaks);
                     // Same reasoning for block-level children (nested
                     // <p>, <li>, headings, table cells): keep them from
                     // running into each other with zero separation.
@@ -448,7 +468,7 @@
         const ordered = list.tagName === "OL";
         const startAt = ordered ? parseInt(list.getAttribute("start") || "1", 10) || 1 : 1;
         return items
-            .map((li, idx) => (ordered ? startAt + idx + ". " : "- ") + cleanTextForMarkdown(li).trim())
+            .map((li, idx) => (ordered ? startAt + idx + ". " : "- ") + cleanTextForMarkdown(li, true).trim())
             .join("\n");
     }
 
@@ -519,7 +539,9 @@
         const newText = (rendered.textContent || "").replace(INVISIBLE_CHARS, "").trim();
         if (origText.length > 20 && newText.length < origText.length * 0.7) return false;
 
-        const nonBlankLines = raw.split("\n").filter((l) => !isBlankMd(l)).length;
+        // an indented line is the second line of the item above it (a
+        // <br> inside the item), not a row of its own
+        const nonBlankLines = raw.split("\n").filter((l) => !isBlankMd(l) && !/^(?: {2,}|\t)\S/.test(l)).length;
         const newRows = rendered.querySelectorAll
             ? rendered.querySelectorAll("li, tr, p, h1, h2, h3, h4, h5, h6").length
             : 0;
@@ -574,8 +596,13 @@
             editableEl.removeEventListener("blur", exit);
             document.removeEventListener("selectionchange", check);
             if (!editableEl.isConnected) return;
+            const ownerPage = window.WPSEditor.closestPage(editableEl);
             renderRawEditBoxSafely(editableEl);
-            if (window.WPSEditor.scheduleRepagination) window.WPSEditor.scheduleRepagination();
+            // repaginate AND re-render math: without this, formulas inside
+            // the rebuilt list/table stayed as raw "$...$" text until some
+            // later edit happened to trigger a render.
+            if (ownerPage && window.WPSEditor.scheduleForPage) window.WPSEditor.scheduleForPage(ownerPage);
+            else if (window.WPSEditor.scheduleRepagination) window.WPSEditor.scheduleRepagination();
         }
         function check() {
             const sel = window.getSelection();
@@ -661,7 +688,13 @@
     // noticeably less text or fewer rows/items than what was there
     // before.
     function isSafeReplacement(original, rebuilt) {
-        const origText = original.textContent.replace(INVISIBLE_CHARS, "").trim();
+        // A rendered formula's textContent is KaTeX's hidden MathML copy
+        // PLUS its visual glyphs — several times longer than the LaTeX it
+        // came from — so comparing it to the rebuilt (still un-rendered)
+        // text always looked like "content was lost" and the whole
+        // normalisation was silently refused for any block with math.
+        // Compare source text (LaTeX from data-latex) on both sides.
+        const origText = cleanTextForMarkdown(original, false).replace(INVISIBLE_CHARS, "").trim();
         const newText = rebuilt.textContent.replace(INVISIBLE_CHARS, "").trim();
         if (origText.length > 20 && newText.length < origText.length * 0.7) return false;
 
@@ -831,6 +864,7 @@
 
         html = html || "<p></p>";
         document.execCommand("insertHTML", false, html);
+        if (window.WPSEditor.armPasteRender) window.WPSEditor.armPasteRender();
         const sel = window.getSelection();
         if (sel.rangeCount > 0) {
             const page = window.WPSEditor.closestPage(sel.getRangeAt(0).startContainer);

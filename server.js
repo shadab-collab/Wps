@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 7700;
 const MONGODB_URI = process.env.MONGODB_URI;
 
-app.use(express.json({ limit: "10mb" })); // editor content can be a fairly large HTML blob
+app.use(express.json({ limit: "60mb" })); // a 100+ page document with pictures is a big HTML blob
 
 // API routes
 app.use("/api/documents", documentsRouter);

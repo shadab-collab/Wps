@@ -17,7 +17,11 @@
        STATE
     ------------------------------------------------ */
     let isRepaginating = false;
-    const debounceTimers = new WeakMap();
+    // A Map, not a WeakMap: scheduleRepagination() uses the plain string
+    // key "repaginate", and a WeakMap only accepts objects as keys — it threw
+    // "Invalid value used as weak map key", so repagination never got
+    // scheduled after inserting/resizing an image or closing a raw-edit box.
+    const debounceTimers = new Map();
     const RENDER_DELAY = 600;      // ms pause before auto-rendering math
     const REPAGINATE_DELAY = 200;  // ms pause before repagination
 
@@ -26,7 +30,10 @@
     ------------------------------------------------ */
     function debounce(map, key, fn, delay) {
         if (map.has(key)) clearTimeout(map.get(key));
-        map.set(key, setTimeout(fn, delay));
+        map.set(key, setTimeout(function () {
+            map.delete(key);
+            fn();
+        }, delay));
     }
 
     function closestPage(node) {
@@ -539,6 +546,7 @@
             // with that page later.
             repaginateAll(() => {
                 allPages().forEach((p) => window.WPSEditor.renderMathInPage(p));
+                if (window.WPSEditor.disarmPasteRender) window.WPSEditor.disarmPasteRender();
             });
         }, RENDER_DELAY);
     }
@@ -555,19 +563,73 @@
         return vars.map((v) => v + ":" + style.getPropertyValue(v).trim() + ";").join("");
     }
 
+    // The HTML sent to the backend. A rendered KaTeX formula is thousands of
+    // <span>s (plus a hidden MathML copy) — 25 formula-heavy pages easily
+    // grew past the server's request limit, which made the direct PDF fail
+    // and silently drop into the (very slow) browser print dialog. So every
+    // formula is sent as an EMPTY marker carrying only its LaTeX source and
+    // the server renders it (routes/render-html.js). Editor-only UI (panels,
+    // carets, selection outlines) is left out too.
+    function buildExportHtml(root) {
+        const clone = root.cloneNode(true);
+        clone.querySelectorAll(".latex-formula").forEach((f) => {
+            const m = document.createElement("span");
+            m.className = "latex-formula";
+            m.setAttribute("data-latex", f.getAttribute("data-latex") || "");
+            if (f.getAttribute("data-display") === "1") m.setAttribute("data-display", "1");
+            if (f.getAttribute("data-wrapped") === "1") m.setAttribute("data-wrapped", "1");
+            f.replaceWith(m);
+        });
+        clone.querySelectorAll(".no-print, .page-select-box, .fake-caret, .img-resize-handle").forEach((n) => n.remove());
+        clone.querySelectorAll(".img-selected").forEach((n) => n.classList.remove("img-selected"));
+        clone.querySelectorAll(".page").forEach((pg) => {
+            pg.removeAttribute("contenteditable");
+            pg.removeAttribute("spellcheck");
+        });
+        return clone.innerHTML;
+    }
+
+    // A small floating status line so a long export never looks frozen.
+    function showExportStatus(text, tone) {
+        let el = document.getElementById("export-status");
+        if (!text) { if (el) el.remove(); return; }
+        if (!el) {
+            el = document.createElement("div");
+            el.id = "export-status";
+            el.className = "no-print";
+            document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.setAttribute("data-tone", tone || "info");
+    }
+
+    let exporting = false;
+
     window.saveAsPDF = function () {
+        if (exporting) return;
         repaginateAll(() => {
             const container = document.getElementById("pages-container");
-            const html = container.innerHTML;
+            const pageCount = container.querySelectorAll(".page").length;
             const cssVars = getCurrentCssVars();
+            const body = JSON.stringify({ html: buildExportHtml(container), cssVars });
+
+            exporting = true;
+            showExportStatus("⏳ PDF बन रही है… " + pageCount + " पेज, कृपया रुकें (कुछ सेकंड से 1-2 मिनट)");
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 240000);
 
             fetch("/api/export-pdf", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ html, cssVars })
+                body: body,
+                signal: ctrl.signal
             })
-                .then((res) => {
-                    if (!res.ok) throw new Error("export failed");
+                .then(async (res) => {
+                    if (!res.ok) {
+                        let detail = "";
+                        try { const j = await res.json(); detail = j.detail || j.error || ""; } catch (e) { detail = "server code " + res.status; }
+                        throw new Error(detail || "export failed");
+                    }
                     return res.blob();
                 })
                 .then((blob) => {
@@ -578,13 +640,23 @@
                     document.body.appendChild(a);
                     a.click();
                     a.remove();
-                    URL.revokeObjectURL(url);
+                    setTimeout(() => URL.revokeObjectURL(url), 60000);
+                    showExportStatus("✅ PDF तैयार — download शुरू हो गया", "ok");
+                    setTimeout(() => showExportStatus(null), 4000);
                 })
-                .catch(() => {
-                    // backend export not available/failed — fall back to
-                    // the browser's own print dialog so PDF export never
-                    // just silently does nothing
-                    window.print();
+                .catch((err) => {
+                    showExportStatus(null);
+                    const why = err && err.name === "AbortError" ? "बहुत देर लग गई" : (err && err.message) || "अज्ञात कारण";
+                    // Never fall into the browser print dialog silently — it
+                    // has to redraw every heavy page and looks stuck. Say
+                    // what happened and let the person choose.
+                    if (confirm("सीधा PDF नहीं बन पाई (" + why + ").\n\nब्राउज़र के Print से बनाएँ? (भारी math वाले पेजों में यह धीमा हो सकता है)")) {
+                        window.print();
+                    }
+                })
+                .finally(() => {
+                    clearTimeout(timer);
+                    exporting = false;
                 });
         });
     };
@@ -625,7 +697,9 @@
         attachPageListeners: attachPageListeners,
         createPageWrapper: createPageWrapper,
         renumberPages: renumberPages,
-        getCurrentCssVars: getCurrentCssVars
+        getCurrentCssVars: getCurrentCssVars,
+        buildExportHtml: buildExportHtml,
+        showExportStatus: showExportStatus
     });
 
     if (document.readyState === "loading") {

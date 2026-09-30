@@ -72,7 +72,7 @@
         const res = await fetch("/api/export-image", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pageHtml: page.innerHTML, cssVars })
+            body: JSON.stringify({ pageHtml: window.WPSEditor.buildExportHtml(page), cssVars })
         });
         if (!res.ok) {
             let detail = "";

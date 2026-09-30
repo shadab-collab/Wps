@@ -513,7 +513,15 @@
             return;
         }
 
-        if (!keyboardMode && !isDragging && e.changedTouches.length === 1) {
+        // A clean tap on a picture opens its size panel; a tap anywhere
+        // else closes that panel again (see handleImageTap in editor-core.js).
+        let tappedImage = false;
+        if (!isDragging && !holdFired && e.changedTouches.length === 1 && window.WPSEditor && window.WPSEditor.handleImageTap) {
+            const t0 = e.changedTouches[0];
+            tappedImage = !!window.WPSEditor.handleImageTap(document.elementFromPoint(t0.clientX, t0.clientY));
+        }
+
+        if (!keyboardMode && !isDragging && !tappedImage && e.changedTouches.length === 1) {
             const t = e.changedTouches[0];
             placeFakeCaretAtPoint(t.clientX, t.clientY);
         }
