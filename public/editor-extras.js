@@ -814,20 +814,17 @@
     async function readClipboardHtmlAndText() {
         if (!navigator.clipboard || !navigator.clipboard.read) return null;
         const items = await navigator.clipboard.read();
+        let html = "", text = "";
         for (const item of items) {
-            if (item.types.includes("text/html")) {
-                const blob = await item.getType("text/html");
-                const html = await blob.text();
-                if (html && html.trim()) return { html: html };
+            if (!html && item.types.includes("text/html")) {
+                html = await (await item.getType("text/html")).text();
+            }
+            if (!text && item.types.includes("text/plain")) {
+                text = await (await item.getType("text/plain")).text();
             }
         }
-        for (const item of items) {
-            if (item.types.includes("text/plain")) {
-                const blob = await item.getType("text/plain");
-                const text = await blob.text();
-                if (text) return { text: text };
-            }
-        }
+        if (html && html.trim()) return { html: html, text: text };
+        if (text) return { text: text };
         return null;
     }
 
@@ -837,7 +834,7 @@
         try {
             const result = await readClipboardHtmlAndText();
             if (result && result.html) {
-                html = window.WPSEditor.sanitizePastedHtml(result.html);
+                html = window.WPSEditor.sanitizePastedHtml(result.html, result.text);
             }
             if (!html && result && result.text) {
                 html = window.WPSEditor.cleanPasteToParagraphs(result.text);

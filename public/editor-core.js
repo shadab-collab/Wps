@@ -468,7 +468,94 @@
     // source-app styling (fonts, colors, spans) we don't want. This
     // keeps only the semantic tags we care about and drops the rest,
     // unwrapping anything unrecognised rather than losing its text.
-    function sanitizePastedHtml(rawHtml) {
+    /* ------------------------------------------------
+       LINE BREAKS THAT THE RICH-TEXT FLAVOUR LOSES
+       A chat app shows "question" and "उत्तर: ..." on two lines, but the
+       copied HTML can carry that break only as a bare newline (shown via
+       white-space:pre-wrap) — which HTML collapses to a space, gluing both
+       onto one line. Two safeguards, neither of which depends on any
+       particular word:
+         1. a newline inside text whose source styling preserves
+            whitespace is kept as a real line break;
+         2. the plain-text flavour of the SAME clipboard shows exactly
+            where lines were broken (an indented continuation line), so a
+            break is put back wherever that same line-start text sits
+            glued to the end of a sentence in the HTML.
+    ------------------------------------------------ */
+    function preservesNewlines(textNode, root) {
+        for (let a = textNode.parentElement; a && a !== root; a = a.parentElement) {
+            const st = a.getAttribute && a.getAttribute("style");
+            if (!st) continue;
+            const m = /white-space\s*:\s*([a-z-]+)/i.exec(st);
+            if (m) return /^(pre|pre-wrap|pre-line|break-spaces)$/i.test(m[1]);
+        }
+        return false;
+    }
+
+    // Start-of-line snippets of every indented continuation line in the
+    // plain-text flavour (the "   उत्तर: ..." under a "* question" line).
+    function continuationStarts(plain) {
+        if (!plain) return [];
+        const lines = plain.replace(/\r\n/g, "\n").split("\n");
+        const seen = new Set();
+        for (let i = 1; i < lines.length; i++) {
+            if (!/^(?: {2,}|\t)\S/.test(lines[i])) continue;
+            if (!lines[i - 1].trim()) continue;
+            const words = lines[i].trim().split(/\s+/).slice(0, 2).join(" ");
+            const snip = words.split(/[\\$\{]/)[0].trim().slice(0, 18);
+            if (snip.length >= 3) seen.add(snip);
+        }
+        return Array.from(seen);
+    }
+
+    function restoreLineBreaks(htmlString, plain) {
+        const starts = continuationStarts(plain);
+        if (!starts.length) return htmlString;
+        const box = document.createElement("div");
+        box.innerHTML = htmlString;
+        const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        let n;
+        while ((n = walker.nextNode())) nodes.push(n);
+
+        nodes.forEach((node) => {
+            if (!node.parentElement || !node.parentElement.closest("li, p, td, th")) return;
+            let text = node.nodeValue;
+            for (const snip of starts) {
+                const k = text.indexOf(snip);
+                if (k === -1) continue;
+                const before = text.slice(0, k);
+                const prev = node.previousSibling;
+                let glued;
+                if (before.trim()) {
+                    // text before it in the same node: break only after a
+                    // sentence end, so a mid-sentence repeat is left alone
+                    glued = /[।.?!:;)\]]\s*$/.test(before);
+                } else {
+                    // starts the node: glued if something other than a
+                    // line break (text, a formula, a bold run) comes first
+                    glued = !!prev && prev.nodeName !== "BR" && (prev.nodeType !== 3 || prev.nodeValue.trim());
+                }
+                if (!glued) continue;
+                const br = document.createElement("br");
+                const parent = node.parentNode;
+                if (before.trim()) {
+                    parent.insertBefore(document.createTextNode(before.replace(/\s+$/, "")), node);
+                    parent.insertBefore(br, node);
+                    node.nodeValue = text.slice(k);
+                    text = node.nodeValue;
+                } else {
+                    parent.insertBefore(br, node);
+                    node.nodeValue = text.replace(/^\s+/, "");
+                    text = node.nodeValue;
+                }
+                break;
+            }
+        });
+        return box.innerHTML;
+    }
+
+    function sanitizePastedHtml(rawHtml, plainText) {
         const temp = document.createElement("div");
         temp.innerHTML = rawHtml;
         temp.querySelectorAll("script, style, meta, link, noscript, template").forEach((el) => el.remove());
@@ -512,6 +599,13 @@
                 // HTML collapses newlines/tabs inside text into a single space,
                 // but the page uses white-space:pre-wrap, where a stray "\n"
                 // would show up as a real blank line — so collapse them here.
+                if (/\n/.test(node.nodeValue) && /\S/.test(node.nodeValue) && preservesNewlines(node, temp)) {
+                    return node.nodeValue
+                        .split("\n")
+                        .map((part) => escapeHtml(normalizeMathDelimiters(part).replace(/[ \t\r\f]+/g, " ").trim()))
+                        .filter((part, i, arr) => part || (i > 0 && i < arr.length - 1))
+                        .join("<br>");
+                }
                 return escapeHtml(normalizeMathDelimiters(node.nodeValue).replace(/[ \t\r\n\f]+/g, " "));
             }
             if (node.nodeType !== 1) return "";
@@ -591,6 +685,7 @@
         // one, and drop empty list items the same way as paragraphs.
         out = out.replace(/(?:\s*<br>\s*){2,}/gi, "<br>");
         out = out.replace(/<li>\s*<\/li>/gi, "");
+        if (out && plainText) out = restoreLineBreaks(out, plainText);
         return out || null;
     }
 
@@ -600,7 +695,7 @@
         const rawHtml = cd.getData("text/html");
         const text = cd.getData("text/plain");
 
-        let html = rawHtml ? sanitizePastedHtml(rawHtml) : null;
+        let html = rawHtml ? sanitizePastedHtml(rawHtml, text) : null;
         if (!html) {
             if (!text) return;
             html = cleanPasteToParagraphs(text) || "<p></p>";
