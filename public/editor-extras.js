@@ -356,7 +356,14 @@
             removedCount += cleanBlankLinesInPage(page);
         });
         window.WPSEditor.renumberPages();
-        window.WPSEditor.repaginateAll();
+        // Lists/tables were just rebuilt from Markdown, which leaves their
+        // formulas as "$...$" text — repaginate first (so the pages are
+        // final), render math on every page, then repaginate once more
+        // because rendered formulas change line heights.
+        window.WPSEditor.repaginateAll(() => {
+            window.WPSEditor.allPages().forEach((p) => window.WPSEditor.renderMathInPage(p));
+            window.WPSEditor.repaginateAll();
+        });
         if (removedCount === 0) alert("कोई खाली पंक्ति नहीं मिली।");
     };
 

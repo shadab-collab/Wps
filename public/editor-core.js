@@ -492,25 +492,51 @@
         return false;
     }
 
-    // Start-of-line snippets of every indented continuation line in the
-    // plain-text flavour (the "   उत्तर: ..." under a "* question" line).
+    // Start-of-line snippets (first words) of every line in the plain-text
+    // flavour that directly follows another non-blank line — i.e. where
+    // the source broke a line WITHOUT starting a new paragraph (the
+    // "उत्तर: ..." under its question, indented or not). Bullet / number
+    // markers are skipped: those are separate list items in HTML anyway.
     function continuationStarts(plain) {
-        if (!plain) return [];
+        const map = new Map(); // first word -> [snippets]
+        if (!plain) return map;
         const lines = plain.replace(/\r\n/g, "\n").split("\n");
-        const seen = new Set();
-        for (let i = 1; i < lines.length; i++) {
-            if (!/^(?: {2,}|\t)\S/.test(lines[i])) continue;
-            if (!lines[i - 1].trim()) continue;
-            const words = lines[i].trim().split(/\s+/).slice(0, 2).join(" ");
-            const snip = words.split(/[\\$\{]/)[0].trim().slice(0, 18);
-            if (snip.length >= 3) seen.add(snip);
+        let count = 0;
+        for (let i = 1; i < lines.length && count < 4000; i++) {
+            const line = lines[i].trim();
+            if (!line || !lines[i - 1].trim()) continue;
+            if (/^([-*•]|\d+[.)])\s/.test(line)) continue;
+            const snip = line.split(/\s+/).slice(0, 3).join(" ").split(/[\\$\{]/)[0].trim().slice(0, 24);
+            if (snip.length < 3 || !/^[A-Za-z\u0900-\u097F]/.test(snip)) continue;
+            const first = snip.split(/\s+/)[0];
+            if (!map.has(first)) map.set(first, []);
+            const arr = map.get(first);
+            if (arr.indexOf(snip) === -1) { arr.push(snip); count++; }
         }
-        return Array.from(seen);
+        return map;
+    }
+
+    const INLINE_WRAPPERS = /^(B|STRONG|I|EM|U|SPAN|FONT|A|SUB|SUP)$/;
+
+    // The inline content that sits right before `node` in the same block,
+    // looking out through bold/italic wrappers ("<b>उत्तर:</b>" starts
+    // inside its <b>, but what precedes it is the question next to the <b>).
+    function precedingInline(node) {
+        let cur = node;
+        while (cur) {
+            let prev = cur.previousSibling;
+            while (prev && prev.nodeType === 3 && !prev.nodeValue.trim()) prev = prev.previousSibling;
+            if (prev) return { prev: prev, top: cur };
+            const par = cur.parentNode;
+            if (!par || !INLINE_WRAPPERS.test(par.nodeName)) return null;
+            cur = par;
+        }
+        return null;
     }
 
     function restoreLineBreaks(htmlString, plain) {
         const starts = continuationStarts(plain);
-        if (!starts.length) return htmlString;
+        if (!starts.size) return htmlString;
         const box = document.createElement("div");
         box.innerHTML = htmlString;
         const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
@@ -518,38 +544,50 @@
         let n;
         while ((n = walker.nextNode())) nodes.push(n);
 
-        nodes.forEach((node) => {
-            if (!node.parentElement || !node.parentElement.closest("li, p, td, th")) return;
-            let text = node.nodeValue;
-            for (const snip of starts) {
-                const k = text.indexOf(snip);
-                if (k === -1) continue;
+        // first position in `text` where a known line-start snippet sits
+        // glued to what came before it (or -1)
+        function findGlued(node, text) {
+            const re = /\S+/g;
+            let m;
+            while ((m = re.exec(text)) !== null) {
+                const list = starts.get(m[0]);
+                if (!list) continue;
+                const k = m.index;
+                const snip = list.find((sn) => text.startsWith(sn, k));
+                if (!snip) continue;
                 const before = text.slice(0, k);
-                const prev = node.previousSibling;
-                let glued;
                 if (before.trim()) {
-                    // text before it in the same node: break only after a
-                    // sentence end, so a mid-sentence repeat is left alone
-                    glued = /[।.?!:;)\]]\s*$/.test(before);
+                    // text before it in the same node: a sentence end, or a
+                    // snippet long enough to be unmistakably a line start
+                    if (/[।.?!:;)\]]\s*$/.test(before) || snip.length >= 10) return k;
                 } else {
-                    // starts the node: glued if something other than a
-                    // line break (text, a formula, a bold run) comes first
-                    glued = !!prev && prev.nodeName !== "BR" && (prev.nodeType !== 3 || prev.nodeValue.trim());
+                    const info = precedingInline(node);
+                    if (info && info.prev.nodeName !== "BR") return k;
                 }
-                if (!glued) continue;
+            }
+            return -1;
+        }
+
+        nodes.forEach((node0) => {
+            if (!node0.parentElement || !node0.parentElement.closest("li, p, td, th")) return;
+            let node = node0;
+            for (let guard = 0; guard < 60; guard++) {
+                const text = node.nodeValue;
+                const k = findGlued(node, text);
+                if (k === -1) break;
                 const br = document.createElement("br");
-                const parent = node.parentNode;
+                const before = text.slice(0, k);
                 if (before.trim()) {
+                    const parent = node.parentNode;
                     parent.insertBefore(document.createTextNode(before.replace(/\s+$/, "")), node);
                     parent.insertBefore(br, node);
                     node.nodeValue = text.slice(k);
-                    text = node.nodeValue;
                 } else {
-                    parent.insertBefore(br, node);
+                    const info = precedingInline(node);
+                    info.top.parentNode.insertBefore(br, info.top);
                     node.nodeValue = text.replace(/^\s+/, "");
-                    text = node.nodeValue;
+                    break; // the rest of this node is already past its line start
                 }
-                break;
             }
         });
         return box.innerHTML;
