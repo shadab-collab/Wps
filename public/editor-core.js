@@ -534,11 +534,105 @@
         return null;
     }
 
+    /* ------------------------------------------------
+       ALIGNING A BLOCK WITH THE PLAIN-TEXT FLAVOUR
+       The most faithful source for "where did the lines break" is the
+       plain text of the same clipboard. A whole run of lines (a heading
+       and 20 equations, a question and its answer ...) often arrives in
+       HTML as ONE paragraph whose newlines were collapsed to spaces.
+       So: for each paragraph / list item, find the run of plain-text
+       lines whose letters (ignoring all whitespace, "$" and list
+       markers) are exactly the paragraph's letters, and put a <br>
+       wherever one of those lines starts. Nothing about the wording
+       matters — only that the same characters appear in the same order.
+    ------------------------------------------------ */
+    const BLOCK_SELECTOR = "p, li, h1, h2, h3, h4, h5, h6, td, th";
+    const NESTED_BLOCK = "p, li, ul, ol, table, h1, h2, h3, h4, h5, h6, div";
+
+    function compressForAlign(str) {
+        return str.replace(/[\s$\u200b\u00a0]+/g, "");
+    }
+
+    function buildPlainIndex(plain) {
+        const lines = plain.replace(/\r\n/g, "\n").split("\n");
+        let P = "";
+        const starts = [];          // offsets in P where a (non-empty) line begins
+        for (let i = 0; i < lines.length; i++) {
+            const t = lines[i]
+                .replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")
+                .replace(/^\s*#{1,6}\s+/, "")
+                .replace(/\*\*|__/g, "");
+            const c = compressForAlign(t);
+            if (!c) continue;
+            starts.push(P.length);
+            P += c;
+        }
+        return { P: P, starts: starts };
+    }
+
+    // Put a <br> right after the `count`-th significant character of `block`.
+    function insertBreakAfterCount(block, count) {
+        const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+        let seen = 0, node;
+        while ((node = walker.nextNode())) {
+            const val = node.nodeValue;
+            for (let i = 0; i < val.length; i++) {
+                if (/[\s$\u200b\u00a0]/.test(val[i])) continue;
+                seen++;
+                if (seen !== count) continue;
+                const tail = val.slice(i + 1);
+                const firstPart = node;
+                if (tail) {
+                    const rest = document.createTextNode(tail.replace(/^\s+/, ""));
+                    node.nodeValue = val.slice(0, i + 1);
+                    node.parentNode.insertBefore(rest, node.nextSibling);
+                }
+                let ref = firstPart;
+                while (!ref.nextSibling && ref.parentNode !== block && INLINE_WRAPPERS.test(ref.parentNode.nodeName)) ref = ref.parentNode;
+                if (ref.nextSibling && ref.nextSibling.nodeName === "BR") return true;
+                const br = document.createElement("br");
+                ref.parentNode.insertBefore(br, ref.nextSibling);
+                // the new line must start flush left, not with the space
+                // that used to separate it from the previous line
+                const after = br.nextSibling;
+                if (after && after.nodeType === 3) after.nodeValue = after.nodeValue.replace(/^\s+/, "");
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function alignBlocksWithPlain(box, plain) {
+        const aligned = new Set();
+        if (!plain) return aligned;
+        const idx = buildPlainIndex(plain);
+        if (!idx.P) return aligned;
+        let ptr = 0;
+        box.querySelectorAll(BLOCK_SELECTOR).forEach((block) => {
+            if (block.querySelector(NESTED_BLOCK) || block.querySelector("br")) return;
+            const B = compressForAlign(block.textContent);
+            if (B.length < 6) return;
+            let at = idx.P.indexOf(B, ptr);
+            if (at === -1) at = idx.P.indexOf(B);
+            if (at === -1) return;
+            ptr = at + B.length;
+            aligned.add(block);
+            const cuts = [];
+            for (const o of idx.starts) {
+                if (o > at && o < at + B.length) cuts.push(o - at);
+            }
+            // from the end backwards, so earlier counts are never disturbed
+            for (let i = cuts.length - 1; i >= 0; i--) insertBreakAfterCount(block, cuts[i]);
+        });
+        return aligned;
+    }
+
     function restoreLineBreaks(htmlString, plain) {
-        const starts = continuationStarts(plain);
-        if (!starts.size) return htmlString;
         const box = document.createElement("div");
         box.innerHTML = htmlString;
+        const aligned = alignBlocksWithPlain(box, plain);
+        const starts = continuationStarts(plain);
+        if (!starts.size) return box.innerHTML;
         const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
         const nodes = [];
         let n;
@@ -569,7 +663,8 @@
         }
 
         nodes.forEach((node0) => {
-            if (!node0.parentElement || !node0.parentElement.closest("li, p, td, th")) return;
+            const owner = node0.parentElement && node0.parentElement.closest("li, p, td, th");
+            if (!owner || aligned.has(owner)) return;
             let node = node0;
             for (let guard = 0; guard < 60; guard++) {
                 const text = node.nodeValue;
