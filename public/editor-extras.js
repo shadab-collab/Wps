@@ -388,7 +388,7 @@
     // instead of being flattened into a space — that flattening is what
     // used to glue "question" and "answer" into one line. Table cells and
     // headings must stay on one source line, so they pass false.
-    function cleanTextForMarkdown(el, keepBreaks) {
+    function cleanTextForMarkdown(el, keepBreaks, keepMarks) {
         let result = "";
         el.childNodes.forEach((node) => {
             if (node.nodeType === 3) {
@@ -411,7 +411,7 @@
                     // line per sub-item (a bullet char, NOT "-"/"1.", which
                     // the parser would read as new top-level items)
                     Array.from(node.children).forEach((sub) => {
-                        const t = cleanTextForMarkdown(sub, true).trim();
+                        const t = cleanTextForMarkdown(sub, true, keepMarks).trim();
                         if (t) {
                             result = result.replace(/[ \t]+$/, "");
                             if (result && !/\n\s*$/.test(result)) result += "\n   ";
@@ -420,7 +420,18 @@
                     });
                 } else {
                     const before = result;
-                    result += cleanTextForMarkdown(node, keepBreaks);
+                    let inner = cleanTextForMarkdown(node, keepBreaks, keepMarks);
+                    // bold / italic / underline survive the round trip as the
+                    // same markup the paste parser understands
+                    if (keepMarks && inner.trim()) {
+                        const t = node.tagName;
+                        if (t === "B" || t === "STRONG") inner = "**" + inner + "**";
+                        else if (t === "I" || t === "EM") inner = "*" + inner + "*";
+                        else if (t === "U") inner = "<u>" + inner + "</u>";
+                        else if (t === "SUB") inner = "<sub>" + inner + "</sub>";
+                        else if (t === "SUP") inner = "<sup>" + inner + "</sup>";
+                    }
+                    result += inner;
                     // Same reasoning for block-level children (nested
                     // <p>, <li>, headings, table cells): keep them from
                     // running into each other with zero separation.
@@ -449,7 +460,7 @@
         );
         if (!rows.length) return "";
         const lines = rows.map((tr) => {
-            const cells = Array.from(tr.children).map((c) => cleanTextForMarkdown(c).trim());
+            const cells = Array.from(tr.children).map((c) => cleanTextForMarkdown(c, false, true).trim());
             return "| " + cells.join(" | ") + " |";
         });
         const colCount = rows[0].children.length;
@@ -475,20 +486,20 @@
         const ordered = list.tagName === "OL";
         const startAt = ordered ? parseInt(list.getAttribute("start") || "1", 10) || 1 : 1;
         return items
-            .map((li, idx) => (ordered ? startAt + idx + ". " : "- ") + cleanTextForMarkdown(li, true).trim())
+            .map((li, idx) => (ordered ? startAt + idx + ". " : "- ") + cleanTextForMarkdown(li, true, true).trim())
             .join("\n");
     }
 
     function domHeadingToMarkdown(h) {
         const level = Number(h.tagName.charAt(1));
-        return "#".repeat(level) + " " + cleanTextForMarkdown(h).trim();
+        return "#".repeat(level) + " " + cleanTextForMarkdown(h, false, true).trim();
     }
 
     function markdownSourceFor(el) {
         if (el.tagName === "TABLE") return domTableToMarkdown(el);
         if (el.tagName === "UL" || el.tagName === "OL") return domListToMarkdown(el);
         if (/^H[1-6]$/.test(el.tagName)) return domHeadingToMarkdown(el);
-        return cleanTextForMarkdown(el);
+        return cleanTextForMarkdown(el, false, true);
     }
 
     // Reuses the same paste-time Markdown parser to turn edited raw

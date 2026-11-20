@@ -149,6 +149,18 @@
             .replace(/>/g, "&gt;");
     }
 
+    // Notes written by AI apps often carry simple inline tags as literal
+    // text — "<u>शीर्षक -</u>" for an underline, "<b>", "<br>" ... Escaping
+    // everything (as done above) is right for safety, but it made those tags
+    // show up as visible "<u>" characters all over the document. Only this
+    // short list of harmless formatting tags is turned back into real
+    // markup; anything else (scripts, links, attributes) stays escaped text.
+    function restoreInlineTags(escaped) {
+        return escaped
+            .replace(/&lt;(\/?)(u|b|i|em|strong|sub|sup|mark|s|strike|del)&gt;/gi, "<$1$2>")
+            .replace(/&lt;br\s*\/?&gt;/gi, "<br>");
+    }
+
     // AI apps (Gemini in particular) pad blank spacing lines with
     // invisible characters — zero-width space/joiner, BOM — instead of
     // a truly empty line. A plain .trim() does NOT strip these, so a
@@ -187,6 +199,7 @@
         out = out.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
         out = out.replace(/\*(.+?)\*/g, "<i>$1</i>");
         out = out.replace(/(^|[^\w])_(.+?)_([^\w]|$)/g, "$1<i>$2</i>$3");
+        out = restoreInlineTags(out);
         return out.replace(/\u0007(\d+)\u0008/g, function (m, i) {
             return escapeHtml(saved[Number(i)]);
         });
@@ -735,11 +748,11 @@
                 if (/\n/.test(node.nodeValue) && /\S/.test(node.nodeValue) && preservesNewlines(node, temp)) {
                     return node.nodeValue
                         .split("\n")
-                        .map((part) => escapeHtml(normalizeMathDelimiters(part).replace(/[ \t\r\f]+/g, " ").trim()))
+                        .map((part) => restoreInlineTags(escapeHtml(normalizeMathDelimiters(part).replace(/[ \t\r\f]+/g, " ").trim())))
                         .filter((part, i, arr) => part || (i > 0 && i < arr.length - 1))
                         .join("<br>");
                 }
-                return escapeHtml(normalizeMathDelimiters(node.nodeValue).replace(/[ \t\r\n\f]+/g, " "));
+                return restoreInlineTags(escapeHtml(normalizeMathDelimiters(node.nodeValue).replace(/[ \t\r\n\f]+/g, " ")));
             }
             if (node.nodeType !== 1) return "";
 
