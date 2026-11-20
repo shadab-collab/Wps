@@ -579,49 +579,80 @@
         const lines = plain.replace(/\r\n/g, "\n").split("\n");
         let P = "";
         const starts = [];          // offsets in P where a (non-empty) line begins
+        const trails = [];          // that line's trailing punctuation: "।", ")।", "]" ...
         for (let i = 0; i < lines.length; i++) {
             const t = lines[i]
                 .replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")
                 .replace(/^\s*#{1,6}\s+/, "")
-                .replace(/\*\*|__/g, "");
+                .replace(/\*\*|__/g, "")
+                .replace(LITERAL_TAGS, "");
             const c = compressForAlign(t);
             if (!c) continue;
             starts.push(P.length);
+            trails.push((t.replace(/\s+/g, "").match(/[^\p{L}\p{N}\p{M}]*$/u) || [""])[0]);
             P += c;
         }
-        return { P: P, starts: starts };
+        return { P: P, starts: starts, trails: trails };
     }
 
-    // Put a <br> right after the `count`-th significant character of `block`.
-    function insertBreakAfterCount(block, count) {
+    // Put a <br> right after the `count`-th significant character of `block`
+    // — plus the punctuation that ended that same source line ("।", ")",
+    // "]" ...), so those marks stay at the end of their own line instead of
+    // jumping to the start of the next one. `trail` is that punctuation as
+    // the plain-text flavour has it.
+    function insertBreakAfterCount(block, count, trail) {
         const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-        let seen = 0, node;
+        const chars = [];
+        let node;
         while ((node = walker.nextNode())) {
-            const val = node.nodeValue;
-            for (let i = 0; i < val.length; i++) {
-                if (!IS_SIGNIFICANT.test(val[i])) continue;
-                seen++;
-                if (seen !== count) continue;
-                const tail = val.slice(i + 1);
-                const firstPart = node;
-                if (tail) {
-                    const rest = document.createTextNode(tail.replace(/^\s+/, ""));
-                    node.nodeValue = val.slice(0, i + 1);
-                    node.parentNode.insertBefore(rest, node.nextSibling);
-                }
-                let ref = firstPart;
-                while (!ref.nextSibling && ref.parentNode !== block && INLINE_WRAPPERS.test(ref.parentNode.nodeName)) ref = ref.parentNode;
-                if (ref.nextSibling && ref.nextSibling.nodeName === "BR") return true;
-                const br = document.createElement("br");
-                ref.parentNode.insertBefore(br, ref.nextSibling);
-                // the new line must start flush left, not with the space
-                // that used to separate it from the previous line
-                const after = br.nextSibling;
-                if (after && after.nodeType === 3) after.nodeValue = after.nodeValue.replace(/^\s+/, "");
-                return true;
+            const v = node.nodeValue;
+            for (let i = 0; i < v.length; i++) chars.push([node, i]);
+        }
+        const at = (k) => chars[k][0].nodeValue[chars[k][1]];
+
+        let seen = 0, end = -1;
+        for (let k = 0; k < chars.length; k++) {
+            if (IS_SIGNIFICANT.test(at(k)) && ++seen === count) { end = k; break; }
+        }
+        if (end < 0) return false;
+
+        if (trail) {
+            let t = 0;
+            for (let j = end + 1; j < chars.length && t < trail.length; j++) {
+                const ch = at(j);
+                if (/\s/.test(ch)) continue;
+                if (ch !== trail[t]) break;
+                t++;
+                end = j;
             }
         }
-        return false;
+        // never cut inside a "$ ... $" formula token
+        let dollars = 0;
+        for (let k = 0; k <= end; k++) if (at(k) === "$") dollars++;
+        if (dollars % 2 === 1) {
+            for (let k = end + 1; k < chars.length; k++) {
+                if (at(k) === "$") { end = k; break; }
+            }
+        }
+
+        const node2 = chars[end][0], i = chars[end][1];
+        const val = node2.nodeValue;
+        const tail = val.slice(i + 1);
+        if (tail) {
+            const rest = document.createTextNode(tail.replace(/^\s+/, ""));
+            node2.nodeValue = val.slice(0, i + 1);
+            node2.parentNode.insertBefore(rest, node2.nextSibling);
+        }
+        let ref = node2;
+        while (!ref.nextSibling && ref.parentNode !== block && INLINE_WRAPPERS.test(ref.parentNode.nodeName)) ref = ref.parentNode;
+        if (ref.nextSibling && ref.nextSibling.nodeName === "BR") return true;
+        const br = document.createElement("br");
+        ref.parentNode.insertBefore(br, ref.nextSibling);
+        // the new line must start flush left, not with the space that
+        // used to separate it from the previous line
+        const after = br.nextSibling;
+        if (after && after.nodeType === 3) after.nodeValue = after.nodeValue.replace(/^\s+/, "");
+        return true;
     }
 
     function alignBlocksWithPlain(box, plain) {
@@ -640,11 +671,11 @@
             ptr = at + B.length;
             aligned.add(block);
             const cuts = [];
-            for (const o of idx.starts) {
-                if (o > at && o < at + B.length) cuts.push(o - at);
-            }
+            idx.starts.forEach((o, li) => {
+                if (o > at && o < at + B.length) cuts.push({ count: o - at, trail: li > 0 ? idx.trails[li - 1] : "" });
+            });
             // from the end backwards, so earlier counts are never disturbed
-            for (let i = cuts.length - 1; i >= 0; i--) insertBreakAfterCount(block, cuts[i]);
+            for (let i = cuts.length - 1; i >= 0; i--) insertBreakAfterCount(block, cuts[i].count, cuts[i].trail);
         });
         return aligned;
     }
