@@ -516,7 +516,7 @@
         const lines = plain.replace(/\r\n/g, "\n").split("\n");
         let count = 0;
         for (let i = 1; i < lines.length && count < 4000; i++) {
-            const line = lines[i].trim();
+            const line = lines[i].replace(LITERAL_TAGS, "").trim();
             if (!line || !lines[i - 1].trim()) continue;
             if (/^([-*•]|\d+[.)])\s/.test(line)) continue;
             const snip = line.split(/\s+/).slice(0, 3).join(" ").split(/[\\$\{]/)[0].trim().slice(0, 24);
@@ -562,8 +562,17 @@
     const BLOCK_SELECTOR = "p, li, h1, h2, h3, h4, h5, h6, td, th";
     const NESTED_BLOCK = "p, li, ul, ol, table, h1, h2, h3, h4, h5, h6, div";
 
+    // Only letters, digits and combining marks (Devanagari vowel signs
+    // included) count when comparing the two clipboard flavours. Quotes,
+    // dashes, brackets, "$" and spacing may differ between them without
+    // affecting the match.
+    const NOT_SIGNIFICANT = /[^\p{L}\p{N}\p{M}]+/gu;
+    const IS_SIGNIFICANT = /[\p{L}\p{N}\p{M}]/u;
+    // literal formatting tags typed as text ("<u>शीर्षक</u>") are not content
+    const LITERAL_TAGS = /<\/?(?:u|b|i|em|strong|sub|sup|mark|s|strike|del|br)\s*\/?>/gi;
+
     function compressForAlign(str) {
-        return str.replace(/[\s$\u200b\u00a0]+/g, "");
+        return str.replace(LITERAL_TAGS, "").replace(NOT_SIGNIFICANT, "");
     }
 
     function buildPlainIndex(plain) {
@@ -590,7 +599,7 @@
         while ((node = walker.nextNode())) {
             const val = node.nodeValue;
             for (let i = 0; i < val.length; i++) {
-                if (/[\s$\u200b\u00a0]/.test(val[i])) continue;
+                if (!IS_SIGNIFICANT.test(val[i])) continue;
                 seen++;
                 if (seen !== count) continue;
                 const tail = val.slice(i + 1);
